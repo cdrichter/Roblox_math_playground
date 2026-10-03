@@ -1,3 +1,17 @@
+local ServerStorage = game:GetService("ServerStorage")
+
+print("Main.server.lua gestartet")
+
+local GeneratePlayground =
+	require(ServerStorage:WaitForChild("Tools"):WaitForChild("GeneratePlayground"))
+
+print("GeneratePlayground geladen")
+
+GeneratePlayground.Generate()
+
+print("Playground wurde generiert")
+
+
 local Services = script.Parent:WaitForChild("Services")
 
 local AnswerPlateService = require(Services:WaitForChild("AnswerPlateService"))

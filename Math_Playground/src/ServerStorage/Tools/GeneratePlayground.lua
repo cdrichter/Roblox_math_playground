@@ -1,3 +1,10 @@
+
+local GeneratePlayground = {}
+
+function GeneratePlayground.Generate()
+
+	print("GeneratePlayground.Generate() läuft")
+
 -- GeneratePlayground.lua
 
 local Workspace = game:GetService("Workspace")
@@ -7,7 +14,7 @@ local Workspace = game:GetService("Workspace")
 --------------------------------------------------
 
 local ISLAND_HEIGHT = 40
-local ISLAND_SIZE = Vector3.new(80, 8, 80)
+local ISLAND_SIZE = Vector3.new(380, 8, 120)
 
 local TRACK_LENGTH = 20
 local TILE_SIZE = Vector3.new(8, 1, 8)
@@ -15,6 +22,14 @@ local TILE_GAP = 2
 
 local TRACK_DISTANCE = 65
 
+
+--------------------------------------------------
+-- WATER CONFIG
+--------------------------------------------------
+
+local WATER_HEIGHT = 0
+local WATER_DEPTH = 20
+local WATER_SIZE = 2000
 --------------------------------------------------
 -- CLEANUP
 --------------------------------------------------
@@ -74,6 +89,11 @@ local function createSign(parent, text, position)
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
 
+	sign.CFrame =
+	CFrame.new(position)
+	* CFrame.Angles(0, math.rad(180), 0);
+
+
 	label.Text = text
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextScaled = true
@@ -83,6 +103,26 @@ local function createSign(parent, text, position)
 
 	return sign
 end
+
+--------------------------------------------------
+-- WATER
+--------------------------------------------------
+
+local terrain = workspace.Terrain
+
+terrain:FillBlock(
+	CFrame.new(
+		0,
+		WATER_HEIGHT - WATER_DEPTH / 2,
+		0
+	),
+	Vector3.new(
+		WATER_SIZE,
+		WATER_DEPTH,
+		WATER_SIZE
+	),
+	Enum.Material.Water
+)
 
 --------------------------------------------------
 -- CENTRAL ISLAND
@@ -128,48 +168,71 @@ local center = createPart(
 	Color3.fromRGB(100, 200, 100)
 )
 
+
+
 --------------------------------------------------
 -- TRACK GENERATOR
 --------------------------------------------------
 
-local directions = {
-	Vector3.new(0, 0, -1),
-	Vector3.new(1, 0, 0),
-	Vector3.new(0, 0, 1),
-	Vector3.new(-1, 0, 0),
+-- Alle Bahnen verlaufen nach Norden (-Z)
+local TRACK_DIRECTION = Vector3.new(0, 0, -1)
+
+-- Abstand zwischen den Mittellinien der Bahnen
+local TRACK_SPACING = 22
+
+-- X-Positionen der vier Bahnen
+local TRACK_X_POSITIONS = {
+	-TRACK_SPACING * 3.5,
+	-TRACK_SPACING * 1.5,
+	 TRACK_SPACING * 1.5,
+	 TRACK_SPACING * 3.5,
 }
 
-local function createTrack(difficulty, direction)
+local function createTrack(difficulty)
 	local folder = Instance.new("Folder")
 
 	folder.Name = "Difficulty_" .. difficulty
 	folder.Parent = tracksFolder
 
-	local startPosition =
-		direction * TRACK_DISTANCE
+	-- Alle Bahnen beginnen nördlich des Spawnpunkts.
+	-- Die Schwierigkeit bestimmt nur die Position auf der X-Achse.
+	local startPosition = Vector3.new(
+		TRACK_X_POSITIONS[difficulty],
+		ISLAND_HEIGHT,
+		-TRACK_DISTANCE
+	)
 
 	for question = 1, TRACK_LENGTH do
 
-		local forwardOffset =
-			direction * ((question - 1) * (TILE_SIZE.Z + TILE_GAP))
+		--------------------------------------------------
+		-- POSITION DER AUFGABE
+		--------------------------------------------------
 
-		local position =
-			Vector3.new(
-				startPosition.X + forwardOffset.X,
-				ISLAND_HEIGHT,
-				startPosition.Z + forwardOffset.Z
-			)
+		local forwardOffset =
+			TRACK_DIRECTION
+			* ((question - 1) * (TILE_SIZE.Z + TILE_GAP))
+
+		local position = Vector3.new(
+			startPosition.X,
+			ISLAND_HEIGHT,
+			startPosition.Z + forwardOffset.Z
+		)
+
+		--------------------------------------------------
+		-- ABSTAND ZWISCHEN DEN BEIDEN ANTWORTPLATTEN
+		--------------------------------------------------
+
+		local plateGap = 0.5
+
+		local leftOffset = Vector3.new(
+			-(TILE_SIZE.X + plateGap) / 2,
+			0,
+			0
+		)
 
 		--------------------------------------------------
 		-- LEFT ANSWER
 		--------------------------------------------------
-
-		local leftOffset =
-			Vector3.new(
-				-direction.Z,
-				0,
-				direction.X
-			) * 5
 
 		local leftTile = createPart(
 			folder,
@@ -178,6 +241,8 @@ local function createTrack(difficulty, direction)
 			position + leftOffset,
 			Color3.fromRGB(80, 150, 230)
 		)
+
+		
 
 		leftTile:SetAttribute("Difficulty", difficulty)
 		leftTile:SetAttribute("QuestionIndex", question)
@@ -206,8 +271,7 @@ local function createTrack(difficulty, direction)
 		createSign(
 			folder,
 			"Aufgabe " .. question,
-			position
-				+ Vector3.new(0, 80, 0)
+			position + Vector3.new(0, 12, 0)
 		)
 	end
 end
@@ -217,10 +281,11 @@ end
 --------------------------------------------------
 
 for difficulty = 1, 4 do
-	createTrack(
-		difficulty,
-		directions[difficulty]
-	)
+	createTrack(difficulty)
 end
 
-print("Math Playground generated successfully!")
+
+
+end
+
+return GeneratePlayground
