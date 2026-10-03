@@ -136,24 +136,30 @@ local function teleportPlayerToSpawn(player)
 	local character = player.Character
 
 	if not character then
-		return false
+		warn("Character nicht gefunden:", player.Name)
+		return
 	end
 
-	local spawnPoint = findSpawnPoint()
+	local playground = workspace:FindFirstChild("MathPlayground")
+
+	if not playground then
+		warn("MathPlayground nicht gefunden")
+		return
+	end
+
+	local spawnPoint = playground:FindFirstChild("SpawnPoint", true)
 
 	if not spawnPoint then
-		warn("No SpawnPoint or SpawnLocation found in Workspace.")
-		return false
+		warn("SpawnPoint nicht gefunden")
+		return
 	end
 
+	-- Spieler etwas oberhalb des SpawnPoints platzieren
 	character:PivotTo(
-		spawnPoint.CFrame
-			* CFrame.new(0, 5, 0)
+		spawnPoint.CFrame * CFrame.new(0, 4, 0)
 	)
 
-	print(player.Name .. " returned to SpawnPoint.")
-
-	return true
+	print(player.Name .. " wurde zum SpawnPoint teleportiert.")
 end
 
 --------------------------------------------------

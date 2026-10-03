@@ -19,12 +19,13 @@ local MathGameService = require(Services:WaitForChild("MathGameService"))
 local ProgressService = require(Services:WaitForChild("ProgressService"))
 local RewardService = require(Services:WaitForChild("RewardService"))
 local FinishService =require(Services:WaitForChild("FinishService"))
-	
+local LeaderboardService = require(Services:WaitForChild("LeaderboardService"))	
 
 FinishService:Init()
 ProgressService:Init()
 RewardService:Init()
 AnswerPlateService:Init()
 MathGameService:Init()
+LeaderboardService:Init()
 
 print("Math Playground server initialized.")
