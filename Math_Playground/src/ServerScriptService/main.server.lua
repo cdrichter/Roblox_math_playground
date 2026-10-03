@@ -18,7 +18,10 @@ local AnswerPlateService = require(Services:WaitForChild("AnswerPlateService"))
 local MathGameService = require(Services:WaitForChild("MathGameService"))
 local ProgressService = require(Services:WaitForChild("ProgressService"))
 local RewardService = require(Services:WaitForChild("RewardService"))
+local FinishService =require(Services:WaitForChild("FinishService"))
+	
 
+FinishService:Init()
 ProgressService:Init()
 RewardService:Init()
 AnswerPlateService:Init()

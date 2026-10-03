@@ -13,16 +13,24 @@ local Workspace = game:GetService("Workspace")
 -- CONFIG
 --------------------------------------------------
 
-local ISLAND_HEIGHT = 40
+local ISLAND_HEIGHT = 100
 local ISLAND_SIZE = Vector3.new(380, 8, 120)
 
 local TRACK_LENGTH = 20
 local TILE_SIZE = Vector3.new(8, 1, 8)
-local TILE_GAP = 2
+local TILE_GAP = 5
 
 local TRACK_DISTANCE = 65
 
+local FINISH_PLATFORM_SIZE = Vector3.new(18, 1, 14)
+local FINISH_GAP = 8
 
+local FINISH_PLATFORM_COLOR = Color3.fromRGB(235, 200, 80)
+
+
+local FINISH_PLATFORM_SIZE = Vector3.new(20, 1, 16)
+local FINISH_GAP = 8
+local FINISH_PLATFORM_COLOR = Color3.fromRGB(235, 200, 80)
 --------------------------------------------------
 -- WATER CONFIG
 --------------------------------------------------
@@ -274,6 +282,40 @@ local function createTrack(difficulty)
 			position + Vector3.new(0, 12, 0)
 		)
 	end
+
+	local trackStep = TILE_SIZE.Z + TILE_GAP
+
+	local finishPosition =
+		startPosition
+		+ TRACK_DIRECTION
+			* (
+				TRACK_LENGTH * trackStep
+				+ FINISH_GAP
+			)
+
+	local finishPlatform = createPart(
+		folder,
+		"FinishPlatform",
+		FINISH_PLATFORM_SIZE,
+		finishPosition,
+		FINISH_PLATFORM_COLOR
+	)
+
+	finishPlatform.Material = Enum.Material.Neon
+	finishPlatform:SetAttribute("Difficulty", difficulty)
+
+	local returnPad = createPart(
+		folder,
+		"ReturnPad",
+		Vector3.new(6, 0.5, 6),
+		finishPosition + Vector3.new(0, 0.75, 0),
+		Color3.fromRGB(80, 220, 120)
+	)
+
+	returnPad.Material = Enum.Material.Neon
+
+	returnPad:SetAttribute("Difficulty", difficulty)
+	returnPad:SetAttribute("IsFinishPad", true)
 end
 
 --------------------------------------------------
