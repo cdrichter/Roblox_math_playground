@@ -1,5 +1,6 @@
 {
-  "name": "Roblox Math Playground",
+  "name": "Math_Playground",
+
   "tree": {
     "$className": "DataModel",
 
@@ -12,14 +13,19 @@
 
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "$path": "src/ServerScriptService",
+      "$path": "src/ServerScriptService"
+    },
 
-       "Services": {
-        "$path": "src/ServerScriptService"
-       },
-       "Systems": {
-        "$path": "src/ServerScriptService/Systems"
-       }
+    "ServerStorage": {
+      "$className": "ServerStorage",
+
+      "Tools": {
+        "$path": "src/ServerStorage/Tools"
+      },
+
+      "Assets": {
+        "$path": "src/ServerStorage/Assets"
+      }
     },
 
     "StarterPlayer": {
@@ -28,13 +34,6 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "$path": "src/StarterPlayer/StarterPlayerScripts"
-      }
-    },
-
-    "ServerStorage": {
-      "$className": "ServerStorage",
-      "Assets": {
-        "$path": "src/ServerStorage/Assets"
       }
     }
   }

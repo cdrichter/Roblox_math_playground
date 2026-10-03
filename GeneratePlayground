@@ -132,44 +132,69 @@ local center = createPart(
 -- TRACK GENERATOR
 --------------------------------------------------
 
-local directions = {
-	Vector3.new(0, 0, -1),
-	Vector3.new(1, 0, 0),
-	Vector3.new(0, 0, 1),
-	Vector3.new(-1, 0, 0),
+--------------------------------------------------
+-- TRACK GENERATOR
+--------------------------------------------------
+
+-- Alle Bahnen verlaufen nach Norden (-Z)
+local TRACK_DIRECTION = Vector3.new(0, 0, -1)
+
+-- Abstand zwischen den Mittellinien der Bahnen
+local TRACK_SPACING = 22
+
+-- X-Positionen der vier Bahnen
+local TRACK_X_POSITIONS = {
+	-TRACK_SPACING * 1.5,
+	-TRACK_SPACING * 0.5,
+	 TRACK_SPACING * 0.5,
+	 TRACK_SPACING * 1.5,
 }
 
-local function createTrack(difficulty, direction)
+local function createTrack(difficulty)
 	local folder = Instance.new("Folder")
 
 	folder.Name = "Difficulty_" .. difficulty
 	folder.Parent = tracksFolder
 
-	local startPosition =
-		direction * TRACK_DISTANCE
+	-- Alle Bahnen beginnen nördlich des Spawnpunkts.
+	-- Die Schwierigkeit bestimmt nur die Position auf der X-Achse.
+	local startPosition = Vector3.new(
+		TRACK_X_POSITIONS[difficulty],
+		ISLAND_HEIGHT,
+		-TRACK_DISTANCE
+	)
 
 	for question = 1, TRACK_LENGTH do
 
-		local forwardOffset =
-			direction * ((question - 1) * (TILE_SIZE.Z + TILE_GAP))
+		--------------------------------------------------
+		-- POSITION DER AUFGABE
+		--------------------------------------------------
 
-		local position =
-			Vector3.new(
-				startPosition.X + forwardOffset.X,
-				ISLAND_HEIGHT,
-				startPosition.Z + forwardOffset.Z
-			)
+		local forwardOffset =
+			TRACK_DIRECTION
+			* ((question - 1) * (TILE_SIZE.Z + TILE_GAP))
+
+		local position = Vector3.new(
+			startPosition.X,
+			ISLAND_HEIGHT,
+			startPosition.Z + forwardOffset.Z
+		)
+
+		--------------------------------------------------
+		-- ABSTAND ZWISCHEN DEN BEIDEN ANTWORTPLATTEN
+		--------------------------------------------------
+
+		local plateGap = 0.5
+
+		local leftOffset = Vector3.new(
+			-(TILE_SIZE.X + plateGap) / 2,
+			0,
+			0
+		)
 
 		--------------------------------------------------
 		-- LEFT ANSWER
 		--------------------------------------------------
-
-		local leftOffset =
-			Vector3.new(
-				-direction.Z,
-				0,
-				direction.X
-			) * 5
 
 		local leftTile = createPart(
 			folder,
@@ -206,8 +231,7 @@ local function createTrack(difficulty, direction)
 		createSign(
 			folder,
 			"Aufgabe " .. question,
-			position
-				+ Vector3.new(0, 20, 0)
+			position + Vector3.new(0, 20, 0)
 		)
 	end
 end
@@ -217,10 +241,7 @@ end
 --------------------------------------------------
 
 for difficulty = 1, 4 do
-	createTrack(
-		difficulty,
-		directions[difficulty]
-	)
+	createTrack(difficulty)
 end
 
 print("Math Playground generated successfully!")
