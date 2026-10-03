@@ -37,7 +37,8 @@ local DifficultyConfig = {
 		Questions = 20,
 		CompletionPoints = 500,
 
-		Operations = {
+
+ 		Operations = {
 			"Addition",
 			"Subtraction",
 			"Multiplication",
@@ -46,7 +47,7 @@ local DifficultyConfig = {
 
 		MinNumber = 10,
 		MaxNumber = 200,
-
+	
 		Reward = "Aura_Hard",
 	},
 

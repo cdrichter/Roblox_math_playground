@@ -12,7 +12,16 @@
 
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "$path": "src/ServerScriptService"
+      "$path": "src/ServerScriptService",
+
+       "Services": {
+        "$className": "Services",
+        "$path": "src/ServerScriptService"
+       },
+       "Systems": {
+        "$className": "Systems",
+        "$path": "src/ServerScriptService/Systems"
+       }
     },
 
     "StarterPlayer": {

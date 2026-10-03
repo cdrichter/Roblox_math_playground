@@ -192,7 +192,7 @@ local function createTrack(difficulty, direction)
 			"Question_" .. question .. "_Answer_B",
 			TILE_SIZE,
 			position - leftOffset,
-			Color3.fromRGB(230, 100, 100)
+			Color3.fromRGB(80, 150, 230)
 		)
 
 		rightTile:SetAttribute("Difficulty", difficulty)
@@ -207,7 +207,7 @@ local function createTrack(difficulty, direction)
 			folder,
 			"Aufgabe " .. question,
 			position
-				+ Vector3.new(0, 6, 0)
+				+ Vector3.new(0, 20, 0)
 		)
 	end
 end
