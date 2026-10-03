@@ -1,7 +1,14 @@
+local Players = game:GetService("Players")
+
 local AnswerPlateService = {}
 
-function AnswerPlateService.PrepareAnswers(plateA, plateB, questionData)
+local touchDebounce = {}
 
+function AnswerPlateService:Init()
+	print("AnswerPlateService initialized.")
+end
+
+function AnswerPlateService.PrepareAnswers(plateA, plateB, questionData)
 	local correctAnswer = questionData.CorrectAnswer
 	local wrongAnswer = questionData.WrongAnswer
 
@@ -23,42 +30,59 @@ function AnswerPlateService.PrepareAnswers(plateA, plateB, questionData)
 end
 
 function AnswerPlateService.EnablePlate(plate, callback)
-
 	plate.Touched:Connect(function(hit)
+		local character = hit:FindFirstAncestorOfClass("Model")
 
-		local character = hit.Parent
 		if not character then
 			return
 		end
 
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if not humanoid then
+		local humanoid =
+			character:FindFirstChildOfClass("Humanoid")
+
+		if not humanoid or humanoid.Health <= 0 then
 			return
 		end
 
-		local player = game.Players:GetPlayerFromCharacter(character)
+		local player =
+			Players:GetPlayerFromCharacter(character)
+
 		if not player then
 			return
 		end
 
-		local isCorrect = plate:GetAttribute("Correct")
+		local debounceKey =
+			tostring(player.UserId)
+			.. "_"
+			.. plate:GetFullName()
 
-		callback(player, isCorrect, plate)
+		if touchDebounce[debounceKey] then
+			return
+		end
+
+		touchDebounce[debounceKey] = true
+
+		local isCorrect =
+			plate:GetAttribute("Correct")
+
+		local difficulty =
+			plate:GetAttribute("Difficulty")
+
+		local questionIndex =
+			plate:GetAttribute("QuestionIndex")
+
+		callback(
+			player,
+			isCorrect,
+			plate,
+			difficulty,
+			questionIndex
+		)
+
+		task.delay(1, function()
+			touchDebounce[debounceKey] = nil
+		end)
 	end)
-end
-
-local function MakePlayerFall(player)
-	local character = player.Character
-	if not character then
-		return
-	end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then
-		return
-	end
-
-	humanoid:ChangeState(Enum.HumanoidStateType.FallingDown)
 end
 
 return AnswerPlateService

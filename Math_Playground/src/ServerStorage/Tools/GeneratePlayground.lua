@@ -283,39 +283,55 @@ local function createTrack(difficulty)
 		)
 	end
 
-	local trackStep = TILE_SIZE.Z + TILE_GAP
+	--------------------------------------------------
+	-- FINISH
+	--------------------------------------------------
+
+	local trackStep =
+		TILE_SIZE.Z + TILE_GAP
 
 	local finishPosition =
 		startPosition
 		+ TRACK_DIRECTION
 			* (
 				TRACK_LENGTH * trackStep
-				+ FINISH_GAP
+				+ 8
 			)
 
-	local finishPlatform = createPart(
-		folder,
-		"FinishPlatform",
-		FINISH_PLATFORM_SIZE,
-		finishPosition,
-		FINISH_PLATFORM_COLOR
+	local finishPlatform =
+		createPart(
+			folder,
+			"FinishPlatform",
+			Vector3.new(20, 1, 16),
+			finishPosition,
+			Color3.fromRGB(235, 200, 80)
+		)
+
+	finishPlatform.Material =
+		Enum.Material.Neon
+
+	local returnPad =
+		createPart(
+			folder,
+			"ReturnPad",
+			Vector3.new(6, 0.5, 6),
+			finishPosition
+				+ Vector3.new(0, 0.75, 0),
+			Color3.fromRGB(80, 220, 120)
+		)
+
+	returnPad.Material =
+		Enum.Material.Neon
+
+	returnPad:SetAttribute(
+		"Difficulty",
+		difficulty
 	)
 
-	finishPlatform.Material = Enum.Material.Neon
-	finishPlatform:SetAttribute("Difficulty", difficulty)
-
-	local returnPad = createPart(
-		folder,
-		"ReturnPad",
-		Vector3.new(6, 0.5, 6),
-		finishPosition + Vector3.new(0, 0.75, 0),
-		Color3.fromRGB(80, 220, 120)
+	returnPad:SetAttribute(
+		"IsFinishPad",
+		true
 	)
-
-	returnPad.Material = Enum.Material.Neon
-
-	returnPad:SetAttribute("Difficulty", difficulty)
-	returnPad:SetAttribute("IsFinishPad", true)
 end
 
 --------------------------------------------------

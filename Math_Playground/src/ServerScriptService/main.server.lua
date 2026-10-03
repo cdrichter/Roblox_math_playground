@@ -1,31 +1,54 @@
-local ServerStorage = game:GetService("ServerStorage")
+local ServerStorage =
+	game:GetService("ServerStorage")
 
 print("Main.server.lua gestartet")
 
-local GeneratePlayground =
-	require(ServerStorage:WaitForChild("Tools"):WaitForChild("GeneratePlayground"))
+--------------------------------------------------
+-- GENERATE WORLD
+--------------------------------------------------
 
-print("GeneratePlayground geladen")
+local GeneratePlayground =
+	require(
+		ServerStorage
+			:WaitForChild("Tools")
+			:WaitForChild("GeneratePlayground")
+	)
 
 GeneratePlayground.Generate()
 
 print("Playground wurde generiert")
 
+--------------------------------------------------
+-- SERVICES
+--------------------------------------------------
 
-local Services = script.Parent:WaitForChild("Services")
+local Services =
+	script.Parent:WaitForChild("Services")
 
-local AnswerPlateService = require(Services:WaitForChild("AnswerPlateService"))
-local MathGameService = require(Services:WaitForChild("MathGameService"))
-local ProgressService = require(Services:WaitForChild("ProgressService"))
-local RewardService = require(Services:WaitForChild("RewardService"))
-local FinishService =require(Services:WaitForChild("FinishService"))
-local LeaderboardService = require(Services:WaitForChild("LeaderboardService"))	
+local ProgressService =
+	require(Services:WaitForChild("ProgressService"))
 
-FinishService:Init()
+local RewardService =
+	require(Services:WaitForChild("RewardService"))
+
+local AnswerPlateService =
+	require(Services:WaitForChild("AnswerPlateService"))
+
+local MathGameService =
+	require(Services:WaitForChild("MathGameService"))
+
+local FinishService =
+	require(Services:WaitForChild("FinishService"))
+
+--------------------------------------------------
+-- INIT
+--------------------------------------------------
+
 ProgressService:Init()
 RewardService:Init()
 AnswerPlateService:Init()
+
 MathGameService:Init()
-LeaderboardService:Init()
+FinishService:Init()
 
 print("Math Playground server initialized.")

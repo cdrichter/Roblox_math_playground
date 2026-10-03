@@ -1,53 +1,25 @@
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local DifficultyConfig = require(Shared:WaitForChild("DifficultyConfig"))
+local ProgressService =
+	require(script.Parent.ProgressService)
+
+local RewardService =
+	require(script.Parent.RewardService)
 
 local FinishService = {}
 
-local initialized = false
-local touchDebounce = {}
+local debounce = {}
 
---------------------------------------------------
--- PLAYER POINTS
---------------------------------------------------
-
-local function setupPlayerPoints(player)
-	local leaderstats = player:FindFirstChild("leaderstats")
-
-	if not leaderstats then
-		leaderstats = Instance.new("Folder")
-		leaderstats.Name = "leaderstats"
-		leaderstats.Parent = player
-	end
-
-	local points = leaderstats:FindFirstChild("Points")
-
-	if not points then
-		points = Instance.new("IntValue")
-		points.Name = "Points"
-		points.Value = 0
-		points.Parent = leaderstats
-	end
-end
-
---------------------------------------------------
--- GET PLAYER
---------------------------------------------------
-
-local function getPlayerFromHit(hit)
-	if not hit then
-		return nil
-	end
-
-	local character = hit:FindFirstAncestorOfClass("Model")
+local function getPlayer(hit)
+	local character =
+		hit:FindFirstAncestorOfClass("Model")
 
 	if not character then
 		return nil
 	end
 
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local humanoid =
+		character:FindFirstChildOfClass("Humanoid")
 
 	if not humanoid then
 		return nil
@@ -56,247 +28,124 @@ local function getPlayerFromHit(hit)
 	return Players:GetPlayerFromCharacter(character)
 end
 
---------------------------------------------------
--- REWARD
---------------------------------------------------
+local function teleportToSpawn(player)
+	local playground =
+		workspace:FindFirstChild("MathPlayground")
 
-local function rewardPlayer(player, difficulty)
-	local difficultyData = DifficultyConfig[difficulty]
-
-	if not difficultyData then
-		warn("Unknown difficulty:", difficulty)
-		return false
+	if not playground then
+		warn("MathPlayground not found")
+		return
 	end
 
-	local reward = difficultyData.CompletionPoints
-
-	if not reward then
-		warn(
-			"No CompletionPoints configured for difficulty:",
-			difficulty
-		)
-		return false
-	end
-
-	local leaderstats = player:FindFirstChild("leaderstats")
-
-	if not leaderstats then
-		warn("No leaderstats found for:", player.Name)
-		return false
-	end
-
-	local points = leaderstats:FindFirstChild("Points")
-
-	if not points then
-		warn("No Points value found for:", player.Name)
-		return false
-	end
-
-	points.Value += reward
-
-	print(
-		player.Name
-			.. " completed "
-			.. difficultyData.Name
-			.. " and received "
-			.. reward
-			.. " points."
-	)
-
-	return true
-end
-
---------------------------------------------------
--- FIND SPAWN
---------------------------------------------------
-
-local function findSpawnPoint()
-	-- First look specifically for SpawnPoint
-	local spawnPoint = workspace:FindFirstChild("SpawnPoint", true)
-
-	if spawnPoint and spawnPoint:IsA("BasePart") then
-		return spawnPoint
-	end
-
-	-- Fallback: use any Roblox SpawnLocation
-	local spawnLocation =
-		workspace:FindFirstChildWhichIsA(
-			"SpawnLocation",
+	local spawnPoint =
+		playground:FindFirstChild(
+			"SpawnPoint",
 			true
 		)
 
-	return spawnLocation
-end
+	if not spawnPoint then
+		warn("SpawnPoint not found")
+		return
+	end
 
---------------------------------------------------
--- TELEPORT PLAYER
---------------------------------------------------
-
-local function teleportPlayerToSpawn(player)
 	local character = player.Character
 
 	if not character then
-		warn("Character nicht gefunden:", player.Name)
 		return
 	end
 
-	local playground = workspace:FindFirstChild("MathPlayground")
-
-	if not playground then
-		warn("MathPlayground nicht gefunden")
-		return
-	end
-
-	local spawnPoint = playground:FindFirstChild("SpawnPoint", true)
-
-	if not spawnPoint then
-		warn("SpawnPoint nicht gefunden")
-		return
-	end
-
-	-- Spieler etwas oberhalb des SpawnPoints platzieren
 	character:PivotTo(
-		spawnPoint.CFrame * CFrame.new(0, 4, 0)
+		spawnPoint.CFrame
+			* CFrame.new(0, 5, 0)
 	)
-
-	print(player.Name .. " wurde zum SpawnPoint teleportiert.")
-end
-
---------------------------------------------------
--- FINISH
---------------------------------------------------
-
-local function finishTrack(returnPad, player)
-	local difficulty =
-		returnPad:GetAttribute("Difficulty")
-
-	if not difficulty then
-		warn(
-			"ReturnPad has no Difficulty attribute:",
-			returnPad:GetFullName()
-		)
-		return
-	end
 
 	print(
 		player.Name,
-		"reached finish for difficulty",
-		difficulty
-	)
-
-	--------------------------------------------------
-	-- GIVE REWARD
-	--------------------------------------------------
-
-	rewardPlayer(player, difficulty)
-
-	--------------------------------------------------
-	-- RETURN TO SPAWN
-	--------------------------------------------------
-
-	teleportPlayerToSpawn(player)
-end
-
---------------------------------------------------
--- PAD TOUCHED
---------------------------------------------------
-
-local function onFinishTouched(returnPad, hit)
-	local player = getPlayerFromHit(hit)
-
-	if not player then
-		return
-	end
-
-	if touchDebounce[player] then
-		return
-	end
-
-	touchDebounce[player] = true
-
-	finishTrack(returnPad, player)
-
-	task.delay(2, function()
-		touchDebounce[player] = nil
-	end)
-end
-
---------------------------------------------------
--- CONNECT PAD
---------------------------------------------------
-
-local function connectReturnPad(returnPad)
-	if not returnPad:IsA("BasePart") then
-		return
-	end
-
-	if returnPad:GetAttribute("IsFinishPad") ~= true then
-		return
-	end
-
-	returnPad.Touched:Connect(function(hit)
-		onFinishTouched(returnPad, hit)
-	end)
-
-	print(
-		"Finish pad connected:",
-		returnPad:GetFullName()
+		"teleported to SpawnPoint."
 	)
 end
 
---------------------------------------------------
--- INIT
---------------------------------------------------
+local function connectFinishPad(pad)
+	pad.Touched:Connect(function(hit)
+		local player = getPlayer(hit)
+
+		if not player then
+			return
+		end
+
+		if debounce[player] then
+			return
+		end
+
+		debounce[player] = true
+
+		local difficulty =
+			pad:GetAttribute("Difficulty")
+
+		if not difficulty then
+			warn(
+				"Finish pad has no Difficulty:",
+				pad:GetFullName()
+			)
+
+			debounce[player] = nil
+			return
+		end
+
+		if not ProgressService:IsTrackCompleted(
+			player,
+			difficulty
+		) then
+
+			print(
+				player.Name,
+				"has not completed difficulty",
+				difficulty,
+				"yet. Progress:",
+				ProgressService:GetProgress(
+					player,
+					difficulty
+				)
+			)
+
+			task.delay(1, function()
+				debounce[player] = nil
+			end)
+
+			return
+		end
+
+		RewardService:GiveCompletionReward(
+			player,
+			difficulty
+		)
+
+		-- Track zurücksetzen, damit ein neuer
+		-- vollständiger Durchlauf wieder Punkte geben kann.
+		ProgressService:ResetTrack(
+			player,
+			difficulty
+		)
+
+		teleportToSpawn(player)
+
+		task.delay(2, function()
+			debounce[player] = nil
+		end)
+	end)
+end
 
 function FinishService:Init()
-	if initialized then
-		return
-	end
-
-	initialized = true
-
-	--------------------------------------------------
-	-- PLAYER POINTS
-	--------------------------------------------------
-
-	for _, player in Players:GetPlayers() do
-		setupPlayerPoints(player)
-	end
-
-	Players.PlayerAdded:Connect(setupPlayerPoints)
-
-	--------------------------------------------------
-	-- PLAYGROUND
-	--------------------------------------------------
-
 	local playground =
 		workspace:WaitForChild("MathPlayground")
-
-	--------------------------------------------------
-	-- EXISTING PADS
-	--------------------------------------------------
 
 	for _, object in playground:GetDescendants() do
 		if object:IsA("BasePart")
 			and object:GetAttribute("IsFinishPad") == true then
 
-			connectReturnPad(object)
+			connectFinishPad(object)
 		end
 	end
-
-	--------------------------------------------------
-	-- NEW PADS
-	--------------------------------------------------
-
-	playground.DescendantAdded:Connect(function(object)
-		task.defer(function()
-			if object:IsA("BasePart")
-				and object:GetAttribute("IsFinishPad") == true then
-
-				connectReturnPad(object)
-			end
-		end)
-	end)
 
 	print("FinishService initialized.")
 end
