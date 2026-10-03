@@ -2,6 +2,17 @@ local QuestionService = {}
 
 local rng = Random.new()
 
+
+local function GenerateWrongAnswer(correctAnswer)
+	local wrongAnswer
+
+	repeat
+		wrongAnswer = correctAnswer + rng:NextInteger(-5, 5)
+	until wrongAnswer ~= correctAnswer
+
+	return wrongAnswer
+end
+
 function QuestionService.PrepareQuestion()
 	local a = rng:NextInteger(1, 20)
 	local b = rng:NextInteger(1, 20)
@@ -32,14 +43,6 @@ function QuestionService.PrepareQuestion()
 	}
 end
 
-local function GenerateWrongAnswer(correctAnswer)
-	local wrongAnswer
 
-	repeat
-		wrongAnswer = correctAnswer + rng:NextInteger(-5, 5)
-	until wrongAnswer ~= correctAnswer
-
-	return wrongAnswer
-end
 
 return QuestionService
