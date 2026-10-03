@@ -15,11 +15,9 @@
       "$path": "src/ServerScriptService",
 
        "Services": {
-        "$className": "Services",
         "$path": "src/ServerScriptService"
        },
        "Systems": {
-        "$className": "Systems",
         "$path": "src/ServerScriptService/Systems"
        }
     },
