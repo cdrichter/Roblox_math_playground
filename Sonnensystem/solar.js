@@ -44,8 +44,11 @@
     );
   }
 
+  // Für HD-Texturen werden zusätzliche Oktaven (feinere Details) berechnet.
+  let fbmBoost = 0;
   function fbm(x, y, z, s, octaves = 5) {
     let amp = 0.5, freq = 1, sum = 0, norm = 0;
+    octaves += fbmBoost;
     for (let i = 0; i < octaves; i++) {
       sum += amp * noise3(x * freq, y * freq, z * freq, s + i * 17);
       norm += amp;
@@ -72,35 +75,66 @@
     return dl * dl + dn * dn;
   };
 
-  // Erzeugt eine Equirectangular-Textur (Länge −180..+180°, Breite +90..−90°)
-  function makeTexture(fn, w = 256, h = 128) {
+  // Erzeugt eine Equirectangular-Textur (Länge −180..+180°, Breite +90..−90°) zeilenweise.
+  // step(budgetMs) rechnet höchstens so lange und liefert am Ende die fertige Textur –
+  // so können große HD-Texturen nebenbei entstehen, ohne die Animation anzuhalten.
+  // fn(x, y, z, lat, lon, px, py) → [r, g, b]; boost = zusätzliche Rausch-Oktaven.
+  // Leinwand – im Hauptprogramm als <canvas>, im Web Worker als OffscreenCanvas
+  function makeCanvas(w, h) {
+    if (typeof document === 'undefined') return new OffscreenCanvas(w, h);
     const c = document.createElement('canvas');
     c.width = w;
     c.height = h;
+    return c;
+  }
+
+  // Eine Texturzeile y berechnen und ab Zeile y0 in den RGBA-Puffer d schreiben
+  function renderRow(fn, w, h, y, d, y0) {
+    const lat = (0.5 - (y + 0.5) / h) * Math.PI;
+    const cl = Math.cos(lat), sl = Math.sin(lat);
+    let i = (y - y0) * w * 4;
+    for (let x = 0; x < w; x++, i += 4) {
+      const lon = ((x + 0.5) / w) * TAU - Math.PI;
+      const col = fn(cl * Math.cos(lon), cl * Math.sin(lon), sl, lat, lon, x, y);
+      d[i] = col[0];
+      d[i + 1] = col[1];
+      d[i + 2] = col[2];
+      d[i + 3] = 255;
+    }
+  }
+
+  function textureJob(fn, w, h, boost = 0) {
+    const c = makeCanvas(w, h);
     const ctx = c.getContext('2d');
     const img = ctx.createImageData(w, h);
-    const d = img.data;
-    for (let y = 0; y < h; y++) {
-      const lat = (0.5 - (y + 0.5) / h) * Math.PI;
-      const cl = Math.cos(lat), sl = Math.sin(lat);
-      for (let x = 0; x < w; x++) {
-        const lon = ((x + 0.5) / w) * TAU - Math.PI;
-        const col = fn(cl * Math.cos(lon), cl * Math.sin(lon), sl, lat, lon);
-        const i = (y * w + x) * 4;
-        d[i] = col[0];
-        d[i + 1] = col[1];
-        d[i + 2] = col[2];
-        d[i + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    return texFromCanvas(c);
+    let y = 0;
+    return {
+      progress: () => y / h,
+      cancel() {},
+      step(budgetMs = Infinity) {
+        const t0 = performance.now();
+        fbmBoost = boost;
+        try {
+          while (y < h && performance.now() - t0 < budgetMs) renderRow(fn, w, h, y++, img.data, 0);
+        } finally {
+          fbmBoost = 0;
+        }
+        if (y < h) return null;
+        ctx.putImageData(img, 0, 0);
+        return texFromCanvas(c);
+      },
+    };
   }
+
+  const makeTexture = (fn, w = 256, h = 128) => textureJob(fn, w, h).step();
 
   // Textur als gepackte Pixel + Zonalmittel je Zeile (für Bewegungsunschärfe bei schneller Drehung)
   function texFromCanvas(c) {
-    const w = c.width, h = c.height;
-    const px = new Uint32Array(c.getContext('2d').getImageData(0, 0, w, h).data.buffer);
+    return texFromPixels(c.getContext('2d').getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+  }
+
+  function texFromPixels(rgba, w, h) {
+    const px = new Uint32Array(rgba.buffer, rgba.byteOffset, w * h);
     const mean = new Uint32Array(h);
     for (let y = 0; y < h; y++) {
       let r = 0, g = 0, b = 0;
@@ -150,13 +184,16 @@
   }
 
   // Polygone (Länge/Breite) in eine Graustufenmaske zeichnen; blur > 0 macht einen weichen Rand
-  function rasterize(rings, w, h, blur = 0) {
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
+  // Nur die Zeilen y0..y1 werden gezeichnet (Streifen für die Web Worker); für die Unschärfe
+  // wird oben und unten ein Rand mitgezeichnet.
+  function rasterize(rings, w, h, blur = 0, y0 = 0, y1 = h) {
+    const m = blur ? Math.ceil(blur * 3) : 0;
+    const bh = y1 - y0 + 2 * m;
+    const c = makeCanvas(w, bh);
     const cx = c.getContext('2d');
     cx.fillStyle = '#000';
-    cx.fillRect(0, 0, w, h);
+    cx.fillRect(0, 0, w, bh);
+    cx.translate(0, m - y0);
     cx.fillStyle = '#fff';
     cx.beginPath();
     for (const r of rings) {
@@ -169,15 +206,13 @@
     }
     cx.fill('evenodd');
     if (blur) {
-      const b = document.createElement('canvas');
-      b.width = w;
-      b.height = h;
+      const b = makeCanvas(w, bh);
       const bx = b.getContext('2d');
       bx.filter = `blur(${blur}px)`;
       bx.drawImage(c, 0, 0);
-      return bx.getImageData(0, 0, w, h).data;
+      return bx.getImageData(0, m, w, y1 - y0).data;
     }
-    return cx.getImageData(0, 0, w, h).data;
+    return cx.getImageData(0, 0, w, y1 - y0).data;
   }
 
   // Grobe Klimazonen für die Einfärbung: [Länge, Breite, Radius Länge, Radius Breite, Stärke]
@@ -217,56 +252,43 @@
     return ZONES[ZONES.length - 1].slice(1);
   }
 
-  function makeEarthTexture(data, w = 1024, h = 512) {
-    const land = rasterize(decodeRings(data.land), w, h);
-    const shelf = rasterize(decodeRings(data.land), w, h, w / 160);
-    const lakes = rasterize(decodeRings(data.lakes), w, h);
-    const ice = rasterize(decodeRings(data.ice), w, h);
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    const cx = c.getContext('2d');
-    const img = cx.createImageData(w, h);
-    const d = img.data;
-    for (let y = 0; y < h; y++) {
-      const latD = 90 - ((y + 0.5) / h) * 180;
-      const lat = latD * DEG, alat = Math.abs(latD);
-      const cl = Math.cos(lat), sl = Math.sin(lat);
-      const zone = zoneColor(alat);
-      for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        const lonD = ((x + 0.5) / w) * 360 - 180;
-        const lon = lonD * DEG;
-        const px = cl * Math.cos(lon), py = cl * Math.sin(lon), pz = sl;
-        // Meer: tief → flach in Küstennähe
-        let col = mix([6, 26, 74], [28, 92, 150], Math.pow(shelf[i] / 255, 0.8) * 0.9);
-        let t = land[i] / 255;
-        if (lakes[i] > 127) t = Math.min(t, 1 - lakes[i] / 255);
-        if (t > 0) {
-          const n = fbm(px * 6, py * 6, pz * 6, 11, 3);
-          const m = fbm(px * 14, py * 14, pz * 14, 12, 3); // unregelmäßige Ränder der Wüsten
-          let lc = zone;
-          const dry = regionWeight(DESERTS, lonD + (m - 0.5) * 9, latD + (n - 0.5) * 6);
-          lc = mix(lc, [212, 182, 128], dry * (0.75 + m * 0.5) + (n - 0.5) * 0.35);
-          lc = mix(lc, [22, 70, 28], regionWeight(RAINFOREST, lonD, latD));
-          const k = 0.85 + n * 0.3;
-          col = mix(col, [lc[0] * k, lc[1] * k, lc[2] * k], t);
-        }
-        // Gletscher und Eisschilde (Grönland, Antarktis), Meereis in der hohen Arktis
-        if (ice[i] > 0) col = mix(col, [238, 243, 248], ice[i] / 255);
-        if (latD > 80 && t < 0.5) col = mix(col, [225, 233, 240], (latD - 80) / 6);
-        // dezente Wolken, damit die Kontinente gut erkennbar bleiben
-        const cloud = fbm(px * 3 + 7, py * 3, pz * 5, 13, 4);
-        if (cloud > 0.6) col = mix(col, [255, 255, 255], (cloud - 0.6) * 1.6);
-        d[i] = col[0];
-        d[i + 1] = col[1];
-        d[i + 2] = col[2];
-        d[i + 3] = 255;
+  // Liefert die Farbfunktion der Erde für eine Karte der Größe w × h (Masken werden vorab gezeichnet)
+  function earthTextureFn(data, w, h, y0 = 0, y1 = h) {
+    const landRings = decodeRings(data.land);
+    const land = rasterize(landRings, w, h, 0, y0, y1);
+    const shelf = rasterize(landRings, w, h, w / 160, y0, y1);
+    const lakes = rasterize(decodeRings(data.lakes), w, h, 0, y0, y1);
+    const ice = rasterize(decodeRings(data.ice), w, h, 0, y0, y1);
+    let zoneRow = -1, zone = null;
+    return (px, py, pz, lat, lon, x, y) => {
+      const latD = lat / DEG, lonD = lon / DEG;
+      if (y !== zoneRow) { zoneRow = y; zone = zoneColor(Math.abs(latD)); }
+      const i = ((y - y0) * w + x) * 4;
+      // Meer: tief → flach in Küstennähe
+      let col = mix([6, 26, 74], [28, 92, 150], Math.pow(shelf[i] / 255, 0.8) * 0.9);
+      let t = land[i] / 255;
+      if (lakes[i] > 127) t = Math.min(t, 1 - lakes[i] / 255);
+      if (t > 0) {
+        const n = fbm(px * 6, py * 6, pz * 6, 11, 3);
+        const m = fbm(px * 14, py * 14, pz * 14, 12, 3); // unregelmäßige Ränder der Wüsten
+        let lc = zone;
+        const dry = regionWeight(DESERTS, lonD + (m - 0.5) * 9, latD + (n - 0.5) * 6);
+        lc = mix(lc, [212, 182, 128], dry * (0.75 + m * 0.5) + (n - 0.5) * 0.35);
+        lc = mix(lc, [22, 70, 28], regionWeight(RAINFOREST, lonD, latD));
+        const k = 0.85 + n * 0.3;
+        col = mix(col, [lc[0] * k, lc[1] * k, lc[2] * k], t);
       }
-    }
-    cx.putImageData(img, 0, 0);
-    return texFromCanvas(c);
+      // Gletscher und Eisschilde (Grönland, Antarktis), Meereis in der hohen Arktis
+      if (ice[i] > 0) col = mix(col, [238, 243, 248], ice[i] / 255);
+      if (latD > 80 && t < 0.5) col = mix(col, [225, 233, 240], (latD - 80) / 6);
+      // dezente Wolken, damit die Kontinente gut erkennbar bleiben
+      const cloud = fbm(px * 3 + 7, py * 3, pz * 5, 13, 4);
+      if (cloud > 0.6) col = mix(col, [255, 255, 255], (cloud - 0.6) * 1.6);
+      return col;
+    };
   }
+
+  const makeEarthTexture = (data, w = 1024, h = 512) => makeTexture(earthTextureFn(data, w, h), w, h);
 
   // ------------------------------------------------------------------ echte Bilder (optional)
   // Equirektangulare Karten, z. B. von solarsystemscope.com/textures (CC BY 4.0) oder NASA.
@@ -282,6 +304,11 @@
     uranus: 'textures/uranus.jpg',
     neptune: 'textures/neptune.jpg',
     pluto: 'textures/pluto.jpg',
+    io: 'textures/io.jpg',
+    europa: 'textures/europa.jpg',
+    ganymede: 'textures/ganymede.jpg',
+    callisto: 'textures/callisto.jpg',
+    titan: 'textures/titan.jpg',
   };
   // Ringstreifen: links innen → rechts außen, mit Transparenz (z. B. 2k_saturn_ring_alpha.png)
   const RING_FILE = 'textures/saturn_ring.png';
@@ -356,15 +383,19 @@
     },
     jupiter(x, y, z, lat, lon) {
       const t = fbm(x * 4, y * 4, z * 5, 31, 4);
-      const b = Math.sin(lat * 15 + t * 2.4);
+      // feine Wirbel und Strömungsbänder, die beim Heranzoomen sichtbar werden
+      const f = fbm(x * 18 + t * 2, y * 18, z * 40, 32, 3);
+      const b = Math.sin(lat * 15 + t * 2.4) + Math.sin(lat * 48 + f * 5) * 0.18;
       let col = b > 0 ? mix([212, 178, 140], [244, 232, 210], b) : mix([212, 178, 140], [150, 98, 64], -b);
+      col = mix(col, [250, 245, 235], (f - 0.62) * 2.2);
       const e = spot(lat, lon, -22, 30, 6, 13);
       if (e < 1) col = mix(col, [196, 88, 56], (1 - e) * 1.6);
       return col;
     },
     saturn(x, y, z, lat) {
       const t = fbm(x * 3, y * 3, z * 4, 41, 3);
-      const b = Math.sin(lat * 11 + t * 1.3);
+      const f = fbm(x * 14, y * 14, z * 36, 42, 3);
+      const b = Math.sin(lat * 11 + t * 1.3) + Math.sin(lat * 40 + f * 3) * 0.15;
       return mix([196, 165, 110], [242, 222, 172], b * 0.5 + 0.5);
     },
     uranus(x, y, z, lat) {
@@ -379,6 +410,41 @@
       if (e < 1) col = mix(col, [20, 35, 110], (1 - e) * 1.5);
       if (t > 0.66 && Math.abs(lat) < 50 * DEG) col = mix(col, [230, 240, 255], (t - 0.66) * 5);
       return col;
+    },
+    io(x, y, z) {
+      const n = fbm(x * 3, y * 3, z * 3, 91, 5);
+      const v = fbm(x * 9, y * 9, z * 9, 92, 3);
+      let col = mix([200, 170, 60], [245, 230, 140], n * 1.3 - 0.15);
+      if (v > 0.66) col = mix(col, [70, 40, 20], (v - 0.66) * 6); // Vulkane
+      else if (v < 0.3) col = mix(col, [215, 110, 40], (0.3 - v) * 3); // Schwefelablagerungen
+      return col;
+    },
+    europa(x, y, z) {
+      const n = fbm(x * 2.5, y * 2.5, z * 2.5, 101, 4);
+      let col = mix([185, 165, 135], [242, 236, 222], n * 1.4 - 0.1);
+      // rötlich-braune Risse (Lineae)
+      const l1 = Math.abs(Math.sin((x * 7 + y * 3 + fbm(x * 4, y * 4, z * 4, 102, 3) * 4) * 3));
+      const l2 = Math.abs(Math.sin((y * 6 - z * 5 + fbm(x * 5, y * 5, z * 5, 103, 3) * 4) * 3));
+      const line = Math.min(l1, l2);
+      if (line < 0.08) col = mix(col, [150, 95, 60], (0.08 - line) * 10);
+      return col;
+    },
+    ganymede(x, y, z) {
+      const n = fbm(x * 2, y * 2, z * 2, 111, 5);
+      const c = fbm(x * 12, y * 12, z * 12, 112, 3);
+      const base = n < 0.47 ? [100, 90, 80] : [175, 165, 150];
+      return mix(base, [225, 220, 210], c * 0.7 - 0.2);
+    },
+    callisto(x, y, z) {
+      const n = fbm(x * 3, y * 3, z * 3, 121, 4);
+      const c = fbm(x * 16, y * 16, z * 16, 122, 3);
+      let col = mix([55, 48, 40], [110, 98, 82], n * 1.3 - 0.15);
+      if (c > 0.66) col = mix(col, [230, 225, 215], (c - 0.66) * 5); // helle Krater
+      return col;
+    },
+    titan(x, y, z, lat) {
+      const n = fbm(x * 2, y * 2, z * 4, 131, 4);
+      return mix([170, 110, 40], [225, 165, 80], 0.5 + Math.sin(lat * 3) * 0.15 + (n - 0.5) * 0.6);
     },
     pluto(x, y, z, lat, lon) {
       const n = fbm(x * 2.5, y * 2.5, z * 2.5, 81, 5);
@@ -439,11 +505,38 @@
       facts: [['Durchmesser', '139.820 km'], ['Umlaufzeit', '11,86 Jahre'], ['Rotation', '9 h 56 min'], ['Monde', '95']],
     },
     {
+      id: 'io', name: 'Io', type: 'Mond des Jupiter', R: 1821.6, color: '#e8d26a', minPx: 1.5, parent: 'jupiter',
+      sat: { a: 421700, L: [106.07719, 203.488955790] }, rot: [0, 203.488955790],
+      facts: [['Durchmesser', '3.643 km'], ['Umlaufzeit', '1,77 Tage'], ['Besonderheit', 'über 400 aktive Vulkane']],
+    },
+    {
+      id: 'europa', name: 'Europa', type: 'Mond des Jupiter', R: 1560.8, color: '#d9cdb4', minPx: 1.5, parent: 'jupiter',
+      sat: { a: 671034, L: [175.73161, 101.374724735] }, rot: [0, 101.374724735],
+      facts: [['Durchmesser', '3.122 km'], ['Umlaufzeit', '3,55 Tage'], ['Besonderheit', 'Ozean unter dem Eispanzer']],
+    },
+    {
+      id: 'ganymede', name: 'Ganymed', type: 'Mond des Jupiter', R: 2634.1, color: '#a49a8c', minPx: 1.5, parent: 'jupiter',
+      sat: { a: 1070412, L: [120.55883, 50.317609207] }, rot: [0, 50.317609207],
+      facts: [['Durchmesser', '5.268 km'], ['Umlaufzeit', '7,15 Tage'], ['Besonderheit', 'größter Mond des Sonnensystems']],
+    },
+    {
+      id: 'callisto', name: 'Kallisto', type: 'Mond des Jupiter', R: 2410.3, color: '#6f6457', minPx: 1.5, parent: 'jupiter',
+      sat: { a: 1882709, L: [84.44459, 21.571071177] }, rot: [0, 21.571071177],
+      facts: [['Durchmesser', '4.821 km'], ['Umlaufzeit', '16,69 Tage'], ['Besonderheit', 'am stärksten verkraterte Oberfläche']],
+    },
+    {
       id: 'saturn', name: 'Saturn', type: 'Gasriese', R: 58232, color: '#e3cd95', minPx: 4, rings: true,
       el: [9.53667594, 0.05386179, 2.48599187, 49.95424423, 92.59887831, 113.66242448],
       rt: [-0.00125060, -0.00050991, 0.00193609, 1222.49362201, -0.41897216, -0.28867794],
       rot: [38.90, 810.7939024],
       facts: [['Durchmesser', '116.460 km'], ['Umlaufzeit', '29,46 Jahre'], ['Rotation', '10 h 34 min'], ['Monde', '274']],
+    },
+    {
+      id: 'titan', name: 'Titan', type: 'Mond des Saturn', R: 2574.7, color: '#d9a35a', minPx: 1.5, parent: 'saturn',
+      // λ0/ϖ0 an TASS 1.7 angepasst (Abweichung < 0,15° für 2000–2026)
+      sat: { a: 1221870, L: [7.53, 22.5769768], e: 0.0288, peri: [204.22, 0.0014012], epoch: 2451545.0, equatorial: true },
+      rot: [0, 22.5769768],
+      facts: [['Durchmesser', '5.149 km'], ['Umlaufzeit', '15,95 Tage'], ['Besonderheit', 'dichte Stickstoff-Atmosphäre']],
     },
     {
       id: 'uranus', name: 'Uranus', type: 'Eisriese', R: 25362, color: '#9fdbe4', minPx: 3.5,
@@ -480,10 +573,17 @@
     uranus: [257.311, -15.175],
     neptune: [299.36, 43.46],
     pluto: [132.993, -6.163],
+    io: [268.05, 64.5],
+    europa: [268.08, 64.51],
+    ganymede: [268.2, 64.57],
+    callisto: [268.72, 64.83],
+    titan: [39.4827, 83.4279],
   };
   for (const b of BODIES) b.pole = POLES[b.id];
   const byId = Object.fromEntries(BODIES.map((b) => [b.id, b]));
   const PLANETS = BODIES.filter((b) => b.el);
+  const MOONS = BODIES.filter((b) => b.parent);
+  for (const m of MOONS) m.parentBody = BODIES.find((b) => b.id === m.parent);
 
   // äquatorial (J2000) → ekliptikal
   const eqToEcl = (v) => [
@@ -574,6 +674,57 @@
   }
 
   const len = (v) => Math.hypot(v[0], v[1], v[2]);
+
+  const poleEq = (b) => {
+    const a = b.pole[0] * DEG, d = b.pole[1] * DEG;
+    return [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)];
+  };
+  const eclToEq = (v) => [
+    v[0],
+    v[1] * Math.cos(OBLIQUITY) - v[2] * Math.sin(OBLIQUITY),
+    v[1] * Math.sin(OBLIQUITY) + v[2] * Math.cos(OBLIQUITY),
+  ];
+
+  // Galileische Monde: mittlere Längen nach J. Meeus, „Astronomical Algorithms“, Kap. 44,
+  //   inkl. Hauptstörung der Laplace-Resonanz; Bezug B1950 → +0,70° Präzession bis J2000.
+  //   Geprüft am Meeus-Beispiel 44.a: Abweichung ≤ 0,03 Jupiterradien (Kallisto 0,26).
+  // Titan: Bahnelemente (JPL) in der Äquatorebene des Saturn, gemessen vom Knoten auf dem
+  //   Himmelsäquator, mit Mittelpunktsgleichung (e = 0,0288); geprüft gegen TASS 1.7.
+  function satelliteOffset(m, jd) {
+    const t = jd - (m.sat.epoch ?? 2443000.5);
+    let L = m.sat.L[0] + m.sat.L[1] * t;
+    if (m.sat.equatorial) {
+      const e = m.sat.e, w = m.sat.peri[0] + m.sat.peri[1] * t;
+      const M = (L - w) * DEG;
+      const nu = M + 2 * e * Math.sin(M) + 1.25 * e * e * Math.sin(2 * M);
+      const th = w * DEG + nu;
+      const r = (m.sat.a * (1 - e * e)) / (1 + e * Math.cos(nu)) / AU_KM;
+      const a = m.parentBody.pole[0] * DEG;
+      const P = poleEq(m.parentBody), Q = [-Math.sin(a), Math.cos(a), 0];
+      const PQ = [P[1] * Q[2] - P[2] * Q[1], P[2] * Q[0] - P[0] * Q[2], P[0] * Q[1] - P[1] * Q[0]];
+      return eqToEcl([0, 1, 2].map((k) => (Q[k] * Math.cos(th) + PQ[k] * Math.sin(th)) * r));
+    }
+    if (m.id === 'io' || m.id === 'europa') {
+      const l1 = 106.07719 + 203.48895579 * t, l2 = 175.73161 + 101.374724735 * t, l3 = 120.55883 + 50.317609207 * t;
+      L += m.id === 'io' ? 0.47259 * Math.sin(2 * (l1 - l2) * DEG) : 1.06476 * Math.sin(2 * (l2 - l3) * DEG);
+    }
+    L = (L + 0.6984) * DEG;
+    const d = [Math.cos(L), Math.sin(L), 0];
+    const P = eqToEcl(poleEq(m.parentBody));
+    const k = d[0] * P[0] + d[1] * P[1] + d[2] * P[2];
+    const v = normalize([d[0] - k * P[0], d[1] - k * P[1], d[2] - k * P[2]]);
+    const r = m.sat.a / AU_KM;
+    return [v[0] * r, v[1] * r, v[2] * r];
+  }
+
+  // Gebundene Rotation: Nullmeridian (Länge 0°) zeigt zum Planeten
+  function lockedSpin(b, dirEcl) {
+    const a = b.pole[0] * DEG;
+    const P = poleEq(b), Q = [-Math.sin(a), Math.cos(a), 0];
+    const PQ = [P[1] * Q[2] - P[2] * Q[1], P[2] * Q[0] - P[0] * Q[2], P[0] * Q[1] - P[1] * Q[0]];
+    const d = eclToEq(dirEcl);
+    return Math.atan2(d[0] * PQ[0] + d[1] * PQ[1] + d[2] * PQ[2], d[0] * Q[0] + d[1] * Q[1] + d[2] * Q[2]);
+  }
 
   // ------------------------------------------------------------------ Zustand
   const state = {
@@ -712,13 +863,19 @@
       b.helio = heliocentric(b, state.T);
       b.disp = toDisplay(b.helio);
     }
-    const earth = byId.earth, moon = byId.moon;
-    const geo = moonGeocentric(state.days);
-    moon.helio = [earth.helio[0] + geo[0], earth.helio[1] + geo[1], earth.helio[2] + geo[2]];
-    const gl = len(geo);
-    const off = Math.max(gl, 3.2 * dispRadius(earth));
-    moon.disp = [earth.disp[0] + (geo[0] / gl) * off, earth.disp[1] + (geo[1] / gl) * off, earth.disp[2] + (geo[2] / gl) * off];
-    moon.geoDisp = off;
+    const moon = byId.moon;
+    for (const m of MOONS) {
+      const parent = m.parentBody;
+      const geo = m.sat ? satelliteOffset(m, jd) : moonGeocentric(state.days);
+      const gl = len(geo);
+      // In der vergrößerten Darstellung werden die Monde weiter nach außen gesetzt (Reihenfolge bleibt)
+      const minOff = m.sat ? dispRadius(parent) * 1.25 * Math.sqrt(m.sat.a / parent.R) : 3.2 * dispRadius(parent);
+      const off = Math.max(gl, minOff);
+      m.geo = geo;
+      m.helio = [parent.helio[0] + geo[0], parent.helio[1] + geo[1], parent.helio[2] + geo[2]];
+      m.disp = [0, 1, 2].map((k) => parent.disp[k] + (geo[k] / gl) * off);
+      m.geoDisp = off;
+    }
 
     // Mond: Hauptterme der IAU-Lösung (Präzession der Mondachse um den Ekliptikpol, 18,6 Jahre)
     const E1 = (125.045 - 0.0529921 * state.days) * DEG, E2 = (250.089 - 0.1059842 * state.days) * DEG;
@@ -727,7 +884,9 @@
 
     for (const b of BODIES) {
       b.p = project(b.disp);
-      b.spin = ((b.rot[0] + b.rot[1] * state.days + (b.rotExtra || 0)) % 360) * DEG;
+      b.spin = b.sat
+        ? lockedSpin(b, [-b.geo[0], -b.geo[1], -b.geo[2]])
+        : ((b.rot[0] + b.rot[1] * state.days + (b.rotExtra || 0)) % 360) * DEG;
       const ax = bodyAxes(b, b.spin);
       b.axes = ax;
       b.viewAxes = { X: projectVec(ax.X), Y: projectVec(ax.Y), P: projectVec(ax.P) };
@@ -764,6 +923,7 @@
     const target = Math.min(W, H) * (b.id === 'sun' ? 0.16 : 0.07);
     let s = target / dispRadius(b);
     if (b.id === 'earth') s = Math.min(s, Math.min(W, H) * 0.3 / byId.moon.geoDisp);
+    if (b.parent) s = Math.min(s, Math.min(W, H) * 0.3 / b.geoDisp); // Planet bleibt im Bild
     cam.goalScale = clampScale(s);
     cam.anim = true;
     cam.animT = 0;
@@ -834,32 +994,32 @@
       ctx.lineWidth = b === state.selected ? 1.6 : 1;
       ctx.stroke();
     }
-    // Mondbahn, sobald sie groß genug ist
-    const earth = byId.earth, moon = byId.moon;
-    const rr = moon.geoDisp * cam.scale;
-    if (rr > 25) {
-      const n = moonOrbitNormal();
-      const u = [1, 0, 0];
-      const a = normalize(cross(n, u)), c = cross(n, a);
+    // Mondbahnen, sobald sie groß genug sind
+    for (const m of MOONS) {
+      if (m.geoDisp * cam.scale < 25) continue;
+      const parent = m.parentBody;
+      const n = m.sat ? eqToEcl(poleEq(parent)) : moonOrbitNormal();
+      const a = normalize(cross(n, [1, 0, 0])), c = cross(n, a);
       ctx.beginPath();
       for (let i = 0; i <= 120; i++) {
         const t = (i / 120) * TAU;
-        const v = [0, 1, 2].map((k) => earth.disp[k] + (a[k] * Math.cos(t) + c[k] * Math.sin(t)) * moon.geoDisp);
+        const v = [0, 1, 2].map((k) => parent.disp[k] + (a[k] * Math.cos(t) + c[k] * Math.sin(t)) * m.geoDisp);
         const p = project(v);
         if (i === 0) ctx.moveTo(sx(p.X), sy(p.Y));
         else ctx.lineTo(sx(p.X), sy(p.Y));
       }
-      ctx.strokeStyle = `rgba(200,200,200,${(0.3 + (1 - (moon.alpha ?? 1)) * 0.6).toFixed(2)})`;
+      const al = m === state.selected ? 0.75 : 0.25 + (1 - (m.alpha ?? 1)) * 0.6;
+      ctx.strokeStyle = `rgba(200,200,200,${al.toFixed(2)})`;
       ctx.lineWidth = 1;
       ctx.stroke();
     }
   }
 
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  const normalize = (v) => {
+  function normalize(v) {
     const l = len(v) || 1;
     return [v[0] / l, v[1] / l, v[2] / l];
-  };
+  }
   function moonOrbitNormal() {
     // Ebene durch zwei Mondpositionen im Abstand von ~1/4 Umlauf
     const a = moonGeocentric(state.days), b = moonGeocentric(state.days + 6.8);
@@ -891,30 +1051,78 @@
   // über die körperfesten Achsen (Pol + Nullmeridian, in Blickkoordinaten) die geografische
   // Breite/Länge bestimmt. Dadurch stimmen Drehwinkel, Drehrichtung, Achsneigung und
   // Blickrichtung – z. B. zeigt der Mond der Erde immer dieselbe Seite.
+  // Berechnet wird nur der Teil der Scheibe, der auf dem Bildschirm liegt, mit einem festen
+  // Pixelbudget (beobachteter Körper: groß + bilineare Filterung, alle anderen: klein).
   // blur (0..1): Mischung mit dem Zonalmittel, wenn die Drehung zu schnell für die Bildrate ist.
-  function drawSphere(b, x, y, r) {
-    const N = clamp(Math.round(2 * r * DPR), 8, 440) | 0;
-    if (!b.sphere || b.sphere.N !== N) {
+  // Pixelbudget: passt sich der Gerätegeschwindigkeit an (Ziel ≈ 9 ms für den beobachteten Körper)
+  const PIXEL_BUDGET = 160000, FOCUS_TARGET_MS = 9, FOCUS_MIN = 120000, FOCUS_MAX = 1400000;
+  let nsPerPixel = 25; // gleitender Mittelwert, wird laufend gemessen
+
+  // schnelle Näherungen für die Pixelschleife (Fehler < 0,1°)
+  const ASIN_N = 8192, ASIN_LUT = new Float32Array(ASIN_N + 1);
+  for (let k = 0; k <= ASIN_N; k++) ASIN_LUT[k] = 0.5 - Math.asin((k / ASIN_N) * 2 - 1) / Math.PI;
+  function fastAtan2(y, x) {
+    const ax = Math.abs(x), ay = Math.abs(y);
+    const mx = ax > ay ? ax : ay, mn = ax > ay ? ay : ax;
+    if (mx === 0) return 0;
+    const a = mn / mx, q = a * a;
+    let r = ((-0.0464964749 * q + 0.15931422) * q - 0.327622764) * q * a + a;
+    if (ay > ax) r = 1.57079637 - r;
+    if (x < 0) r = 3.14159274 - r;
+    return y < 0 ? -r : r;
+  }
+  const sphereBuf = { w: 0, h: 0, canvas: null, ctx: null, img: null, px: null };
+
+  function sphereBuffer(w, h) {
+    if (w > sphereBuf.w || h > sphereBuf.h) {
       const c = document.createElement('canvas');
-      c.width = c.height = N;
+      c.width = Math.max(w, sphereBuf.w);
+      c.height = Math.max(h, sphereBuf.h);
       const cx = c.getContext('2d');
-      const img = cx.createImageData(N, N);
-      b.sphere = { N, canvas: c, ctx: cx, img, px: new Uint32Array(img.data.buffer) };
+      const img = cx.createImageData(c.width, c.height);
+      Object.assign(sphereBuf, { w: c.width, h: c.height, canvas: c, ctx: cx, img, px: new Uint32Array(img.data.buffer) });
     }
-    const S = b.sphere, out = S.px;
-    const { w: TW, h: TH, px: tex, mean } = b.tex;
+    return sphereBuf;
+  }
+
+  function bilerp(c00, c10, c01, c11, tx, ty) {
+    const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+    const r = (c00 & 255) * w00 + (c10 & 255) * w10 + (c01 & 255) * w01 + (c11 & 255) * w11;
+    const g = ((c00 >>> 8) & 255) * w00 + ((c10 >>> 8) & 255) * w10 + ((c01 >>> 8) & 255) * w01 + ((c11 >>> 8) & 255) * w11;
+    const b = ((c00 >>> 16) & 255) * w00 + ((c10 >>> 16) & 255) * w10 + ((c01 >>> 16) & 255) * w01 + ((c11 >>> 16) & 255) * w11;
+    return r | (g << 8) | (b << 16);
+  }
+
+  function drawSphere(b, x, y, r) {
+    // sichtbarer Ausschnitt der Scheibe (CSS-Pixel)
+    const x0 = Math.max(Math.floor(x - r), 0), x1 = Math.min(Math.ceil(x + r), W);
+    const y0 = Math.max(Math.floor(y - r), 0), y1 = Math.min(Math.ceil(y + r), H);
+    if (x1 <= x0 || y1 <= y0) return;
+    const focus = b === hdFocus();
+    const visW = x1 - x0, visH = y1 - y0;
+    const budget = focus ? clamp((FOCUS_TARGET_MS * 1e6) / nsPerPixel, FOCUS_MIN, FOCUS_MAX) : PIXEL_BUDGET;
+    const res = Math.min(DPR, Math.sqrt(budget / (visW * visH)));
+    const t0 = performance.now();
+    const bw = Math.max(1, Math.round(visW * res)), bh = Math.max(1, Math.round(visH * res));
+    const S = sphereBuffer(bw, bh), out = S.px, stride = S.w;
+    const T = b.texHi || b.tex;
+    const { w: TW, h: TH, px: tex, mean } = T;
     const { X, Y, P } = b.viewAxes;
     const blur = b.blur || 0, keep = 1 - blur;
-    const inv = 2 / N, half = N / 2, lim = (1 + inv) * (1 + inv);
-    let i = 0;
-    for (let py = 0; py < N; py++) {
-      const v0 = 1 - (py + 0.5) * inv;
-      for (let px = 0; px < N; px++, i++) {
-        const u0 = (px + 0.5) * inv - 1;
+    // bilinear nur, wenn ein Texel größer als ein Bildpunkt erscheint
+    const bilinear = focus && (r * res * Math.PI) / TW > 1.2;
+    const sx0 = (x0 - x) / r, sy0 = (y - y0) / r;
+    const stepX = visW / bw / r, stepY = visH / bh / r;
+    const edge = r * res; // Scheibenradius in Puffer-Pixeln (Kantenglättung)
+    for (let py = 0; py < bh; py++) {
+      const v0 = sy0 - (py + 0.5) * stepY;
+      let i = py * stride;
+      for (let px = 0; px < bw; px++, i++) {
+        const u0 = sx0 + (px + 0.5) * stepX;
         const d2 = u0 * u0 + v0 * v0;
-        if (d2 > lim) { out[i] = 0; continue; }
+        if (d2 > 1.0 + 4 / edge) { out[i] = 0; continue; }
         const d = Math.sqrt(d2);
-        const cov = (1 - d) * half + 0.5; // Kantenglättung
+        const cov = (1 - d) * edge + 0.5;
         if (cov <= 0) { out[i] = 0; continue; }
         const k = d > 1 ? 1 / d : 1;
         const u = u0 * k, v = v0 * k;
@@ -922,15 +1130,23 @@
         const bx = u * X[0] + v * X[1] + w * X[2];
         const by = u * Y[0] + v * Y[1] + w * Y[2];
         const bz = u * P[0] + v * P[1] + w * P[2];
-        const lat = Math.asin(bz > 1 ? 1 : bz < -1 ? -1 : bz);
-        const lon = Math.atan2(by, bx);
-        let ty = ((0.5 - lat / Math.PI) * TH) | 0;
-        if (ty >= TH) ty = TH - 1;
-        let tx = ((lon / TAU + 0.5) * TW) | 0;
-        if (tx >= TW) tx -= TW;
-        let c = tex[ty * TW + tx];
+        const fy = ASIN_LUT[((bz > 1 ? 1 : bz < -1 ? -1 : bz) + 1) * (ASIN_N / 2) + 0.5 | 0] * TH;
+        const fx = (fastAtan2(by, bx) / TAU + 0.5) * TW;
+        let c;
+        if (bilinear) {
+          const ax = fx - 0.5, ay = Math.min(Math.max(fy - 0.5, 0), TH - 1.001);
+          const ix = Math.floor(ax), iy = ay | 0, tx = ax - ix, ty = ay - iy;
+          const xa = (ix + TW) % TW, xb = (ix + 1) % TW, ra = iy * TW, rb = Math.min(iy + 1, TH - 1) * TW;
+          c = bilerp(tex[ra + xa], tex[ra + xb], tex[rb + xa], tex[rb + xb], tx, ty);
+        } else {
+          let ty = fy | 0;
+          if (ty >= TH) ty = TH - 1;
+          let tx = fx | 0;
+          if (tx >= TW) tx -= TW;
+          c = tex[ty * TW + tx];
+        }
         if (blur > 0) {
-          const m = mean[ty];
+          const m = mean[Math.min(TH - 1, fy | 0)];
           c = ((c & 255) * keep + (m & 255) * blur) |
             ((((c >>> 8) & 255) * keep + ((m >>> 8) & 255) * blur) << 8) |
             ((((c >>> 16) & 255) * keep + ((m >>> 16) & 255) * blur) << 16);
@@ -938,9 +1154,10 @@
         out[i] = ((c & 0xffffff) | ((cov >= 1 ? 255 : (cov * 255) | 0) << 24)) >>> 0;
       }
     }
-    S.ctx.putImageData(S.img, 0, 0);
+    if (bw * bh > 50000) nsPerPixel += (((performance.now() - t0) * 1e6) / (bw * bh) - nsPerPixel) * 0.2;
+    S.ctx.putImageData(S.img, 0, 0, 0, 0, bw, bh);
     ctx.save();
-    ctx.drawImage(S.canvas, x - r, y - r, 2 * r, 2 * r);
+    ctx.drawImage(S.canvas, 0, 0, bw, bh, x0, y0, visW, visH);
     // Randverdunkelung
     const g = ctx.createRadialGradient(x, y, r * 0.55, x, y, r);
     g.addColorStop(0, 'rgba(0,0,0,0)');
@@ -950,6 +1167,136 @@
     ctx.arc(x, y, r, 0, TAU);
     ctx.fill();
     ctx.restore();
+  }
+
+  // ------------------------------------------------------------------ HD-Oberflächen
+  // Erst wenn man nah an den beobachteten Körper heranzoomt (mehr Bildpunkte als die normale
+  // Textur hergibt), wird für genau diesen Körper eine hochaufgelöste Textur erzeugt – in
+  // kleinen Häppchen pro Bild, damit die Animation flüssig bleibt. Wechselt man den Körper,
+  // wird die alte HD-Textur verworfen (Speicher).
+  const HD_STEP_MS = 8;
+  const hd = { body: null, job: null };
+  const hdFocus = () => state.follow || state.selected;
+
+  // Web Worker: rechnen die HD-Textur in Streifen parallel auf mehreren Prozessorkernen.
+  // Der Worker-Code wird aus denselben Funktionen zusammengesetzt wie im Hauptprogramm
+  // (Blob-URL – funktioniert auch beim Öffnen per Doppelklick).
+  let workers = null, workerJobId = 0;
+
+  function workerSource() {
+    const fns = [hash, noise3, fbm, makeCanvas, renderRow, decodeRings, rasterize, regionWeight, zoneColor, earthTextureFn];
+    return [
+      `'use strict';`,
+      `const DEG = ${DEG}, TAU = ${TAU};`,
+      `let fbmBoost = 0;`,
+      `const clamp = ${clamp};`,
+      `const mix = ${mix};`,
+      `const angDiff = ${angDiff};`,
+      `const spot = ${spot};`,
+      `const DESERTS = ${JSON.stringify(DESERTS)}, RAINFOREST = ${JSON.stringify(RAINFOREST)}, ZONES = ${JSON.stringify(ZONES)};`,
+      ...fns.map(String),
+      `const TEXTURES = {${Object.values(TEXTURES).map(String).join(',\n')}};`,
+      `onmessage = (e) => {
+        const { jobId, id, w, h, y0, y1, boost, earth } = e.data;
+        fbmBoost = boost;
+        const fn = earth ? earthTextureFn(earth, w, h, y0, y1) : TEXTURES[id];
+        const out = new Uint8ClampedArray(w * (y1 - y0) * 4);
+        for (let y = y0; y < y1; y++) renderRow(fn, w, h, y, out, y0);
+        postMessage({ jobId, y0, out }, [out.buffer]);
+      };`,
+    ].join('\n');
+  }
+
+  function getWorkers() {
+    if (workers) return workers;
+    workers = [];
+    try {
+      if (typeof OffscreenCanvas === 'undefined') throw new Error('kein OffscreenCanvas');
+      const url = URL.createObjectURL(new Blob([workerSource()], { type: 'text/javascript' }));
+      const n = clamp((navigator.hardwareConcurrency || 2) - 1, 1, 4);
+      for (let k = 0; k < n; k++) {
+        const wk = new Worker(url);
+        wk.onerror = () => { workers = []; }; // Fallback: Berechnung auf dem Hauptthread (s. updateHD)
+        workers.push(wk);
+      }
+    } catch {
+      workers = [];
+    }
+    return workers;
+  }
+
+  function workerTextureJob(b, w, h, boost) {
+    const ws = getWorkers();
+    if (!ws.length) return null;
+    const jobId = ++workerJobId, bands = ws.length * 4;
+    const px = new Uint8ClampedArray(w * h * 4);
+    const earth = b.id === 'earth' && window.EARTH_DATA ? window.EARTH_DATA : null;
+    let next = 0, done = 0, result = null, cancelled = false;
+    const send = (wk) => {
+      if (next >= bands || cancelled) return;
+      const y0 = Math.floor((next * h) / bands), y1 = Math.floor(((next + 1) * h) / bands);
+      next++;
+      wk.postMessage({ jobId, id: b.id, w, h, y0, y1, boost, earth });
+    };
+    for (const wk of ws) {
+      wk.onmessage = (e) => {
+        if (e.data.jobId !== jobId || cancelled) return; // Antwort eines abgebrochenen Auftrags
+        px.set(e.data.out, e.data.y0 * w * 4);
+        if (++done === bands) result = texFromPixels(px, w, h);
+        else send(wk);
+      };
+      send(wk);
+    }
+    return {
+      progress: () => done / bands,
+      step: () => result,
+      cancel: () => { cancelled = true; },
+      failed: () => !result && workers.length === 0,
+    };
+  }
+
+  function updateHD() {
+    const b = hdFocus();
+    if (hd.body && hd.body !== b) {
+      hd.body.texHi = null;
+      hd.body = null;
+      if (hd.job) hd.job.cancel();
+      hd.job = null;
+    }
+    const hint = $('hdHint');
+    if (!b || b.texHi || b.hdNone || b.rpx === undefined) { hint.classList.add('hidden'); return; }
+    const needed = b.rpx * 2 * DPR > b.tex.w * 0.45;
+    if (!needed && !hd.job) { hint.classList.add('hidden'); return; }
+    hd.body = b;
+    if (!hd.job) {
+      if (b.realImg) {
+        // echtes Bild in voller Auflösung (bis 4096 px) statt der verkleinerten 2048er-Fassung
+        if (b.realImg.naturalWidth > b.tex.w) b.texHi = texFromCanvas(imageToCanvas(b.realImg, 4096));
+        else b.hdNone = true;
+        return;
+      }
+      // mit Web Workern 4096 × 2048 (parallel), sonst 2048 × 1024 in Häppchen auf dem Hauptthread
+      const boost = b.id === 'earth' ? 1 : 2;
+      hd.job = workerTextureJob(b, 4096, 2048, boost);
+      if (!hd.job) {
+        const fn = b.id === 'earth' && window.EARTH_DATA ? earthTextureFn(window.EARTH_DATA, 2048, 1024) : TEXTURES[b.id];
+        hd.job = textureJob(fn, 2048, 1024, boost);
+      }
+    }
+    if (hd.job.failed && hd.job.failed()) {
+      // Worker ausgefallen → auf dem Hauptthread weiterrechnen
+      const fn = b.id === 'earth' && window.EARTH_DATA ? earthTextureFn(window.EARTH_DATA, 2048, 1024) : TEXTURES[b.id];
+      hd.job = textureJob(fn, 2048, 1024, b.id === 'earth' ? 1 : 2);
+    }
+    const tex = hd.job.step(HD_STEP_MS);
+    if (tex) {
+      b.texHi = tex;
+      hd.job = null;
+      hint.classList.add('hidden');
+    } else {
+      hint.textContent = `HD-Oberfläche ${b.name}: ${Math.round(hd.job.progress() * 100)} %`;
+      hint.classList.remove('hidden');
+    }
   }
 
   // Nachtseite: Halbkreis + Terminator-Halbellipse, abhängig von der 3D-Lichtrichtung
@@ -1054,9 +1401,10 @@
     ctx.fill();
   }
 
-  function moonHidden() {
-    const e = byId.earth;
-    return byId.moon.geoDisp * cam.scale < e.rpx + 5;
+  // Mond ausblenden, solange er in der Darstellung im Planeten (bzw. Saturnring) verschwinden würde
+  function moonHidden(m) {
+    const p = m.parentBody;
+    return m.geoDisp * cam.scale < p.rpx * (p.rings ? 2.35 : 1) + 5;
   }
 
   function drawBodies() {
@@ -1067,7 +1415,7 @@
     }
     const order = BODIES.slice().sort((a, b) => a.p.D - b.p.D);
     for (const b of order) {
-      if (b.id === 'moon' && moonHidden()) continue;
+      if (b.parent && moonHidden(b)) continue;
       const { sx: x, sy: y, rpx: r } = b;
       const margin = b.rings ? r * 2.4 : b.id === 'sun' ? r * 4 + 30 : r;
       if (x < -margin || y < -margin || x > W + margin || y > H + margin) continue;
@@ -1102,7 +1450,7 @@
     ctx.font = '12px system-ui, sans-serif';
     ctx.textBaseline = 'middle';
     for (const b of BODIES) {
-      if (b.id === 'moon' && (moonHidden() || byId.moon.geoDisp * cam.scale < 30)) continue;
+      if (b.parent && (moonHidden(b) || b.geoDisp * cam.scale < 30)) continue;
       const x = b.sx, y = b.sy;
       if (x < -50 || y < -20 || x > W + 50 || y > H + 20) continue;
       const off = (b.rings ? b.rpx * 2.3 : b.rpx) + 6;
@@ -1196,10 +1544,10 @@
     if (b.id !== 'sun') {
       rows.push(['Abstand zur Sonne', `${nf(sunDist, 3)} AE · ${nf((sunDist * AU_KM) / 1e6, 1)} Mio. km`]);
     }
-    if (b.id === 'moon') {
-      const g = moonGeocentric(state.days);
-      rows.push(['Abstand zur Erde', `${nf(len(g) * AU_KM)} km`]);
-    } else if (b.id !== 'earth') {
+    if (b.parent) {
+      rows.push([`Abstand zu${b.parent === 'earth' ? 'r Erde' : 'm ' + b.parentBody.name}`, `${nf(len(b.geo) * AU_KM)} km`]);
+    }
+    if (b.id !== 'earth' && b.id !== 'moon') {
       const dv = [b.helio[0] - earth.helio[0], b.helio[1] - earth.helio[1], b.helio[2] - earth.helio[2]];
       rows.push(['Abstand zur Erde', `${nf(len(dv), 3)} AE · ${nf((len(dv) * AU_KM) / 1e6, 1)} Mio. km`]);
       const lt = (len(dv) * AU_KM) / 299792.458;
@@ -1217,10 +1565,9 @@
       // Länge, über der die Sonne gerade im Zenit steht (12 Uhr Ortszeit)
       rows.push(['Sonne im Zenit über', fmtLon(subPointLon(b, [-b.helio[0], -b.helio[1], -b.helio[2]]))]);
     }
-    if (b.id === 'moon') {
-      // gebundene Rotation: Punkt, über dem die Erde steht – bleibt nahe 0° (± Libration)
-      const toEarth = [earth.helio[0] - b.helio[0], earth.helio[1] - b.helio[1], earth.helio[2] - b.helio[2]];
-      rows.push(['Erde im Zenit über', fmtLon(subPointLon(b, toEarth))]);
+    if (b.parent) {
+      // gebundene Rotation: Punkt, über dem der Planet steht – bleibt nahe 0° (Erdmond: ± Libration)
+      rows.push([`${b.parentBody.name} im Zenit über`, fmtLon(subPointLon(b, [-b.geo[0], -b.geo[1], -b.geo[2]]))]);
     }
     const dl = $('infoList');
     dl.innerHTML = '';
@@ -1244,7 +1591,8 @@
   // Neigung der Drehachse gegen die eigene Bahnebene (Sonne/Mond: gegen die Ekliptik)
   function axialTilt(b) {
     let n = [0, 0, 1];
-    if (b.el) {
+    if (b.sat) n = eqToEcl(poleEq(b.parentBody));
+    else if (b.el) {
       const el = elementsAt(b, state.T);
       n = [Math.sin(el.I) * Math.sin(el.node), -Math.sin(el.I) * Math.cos(el.node), Math.cos(el.I)];
     }
@@ -1386,7 +1734,7 @@
     let best = null, bestD = Infinity;
     for (const b of BODIES) {
       if (b.sx === undefined) continue;
-      if (b.id === 'moon' && moonHidden()) continue;
+      if (b.parent && moonHidden(b)) continue;
       const d = Math.hypot(b.sx - x, b.sy - y);
       const hit = Math.max(b.rpx + 4, 12);
       if (d < hit && d < bestD) { best = b; bestD = d; }
@@ -1485,9 +1833,11 @@
       b.degPerFrame = Math.abs(b.rot[1]) * dps * smoothDt;
       b.blur = clamp((b.degPerFrame - BLUR_START) / (BLUR_FULL - BLUR_START));
     }
-    const moon = byId.moon;
-    moon.orbitDegPerFrame = (360 / 27.321661) * dps * smoothDt;
-    moon.alpha = 1 - 0.7 * clamp((moon.orbitDegPerFrame - 30) / 60);
+    for (const m of MOONS) {
+      const period = m.sat ? 360 / m.sat.L[1] : 27.321661; // Tage
+      m.orbitDegPerFrame = (360 / period) * dps * smoothDt;
+      m.alpha = 1 - 0.7 * clamp((m.orbitDegPerFrame - 30) / 60);
+    }
   }
 
   // ------------------------------------------------------------------ Hauptschleife
@@ -1508,6 +1858,7 @@
     updateMotionBlur(dt);
     updateCamera(dt);
     render();
+    updateHD();
     updateHud(now);
     requestAnimationFrame(frame);
   }
@@ -1527,6 +1878,9 @@
       try {
         b.tex = texFromCanvas(imageToCanvas(img));
         b.realImage = true;
+        b.realImg = img; // für HD-Stufe beim Heranzoomen
+        b.texHi = null;
+        b.hdNone = false;
         loaded++;
       } catch {
         blocked = true;

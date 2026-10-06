@@ -25,6 +25,15 @@ python3 -m http.server 8000     # dann http://localhost:8000 öffnen
   ~25°, wird seine Oberfläche entlang der Breitenkreise verwischt (wie eine Langzeitbelichtung),
   statt scheinbar stillzustehen oder rückwärts zu laufen. Die Infotafel zeigt, wie lange eine
   Umdrehung bei der gewählten Geschwindigkeit auf dem Bildschirm dauert.
+- **Monde:** Erdmond, die vier Galileischen Monde (Io, Europa, Ganymed, Kallisto) und Titan.
+  Positionen nach Meeus (Jupitermonde, geprüft am Meeus-Beispiel 44.a) bzw. JPL-Bahnelementen
+  (Titan, geprüft gegen TASS 1.7, < 0,15°). Alle zeigen ihrem Planeten immer dieselbe Seite.
+  In der vergrößerten Darstellung werden die Monde etwas weiter nach außen gesetzt,
+  mit „echte Abstände“ + „echte Größen“ stimmen die Abstände exakt.
+- **HD beim Heranzoomen:** Nur für den gerade beobachteten Körper (ausgewählt oder verfolgt)
+  wird beim nahen Heranzoomen eine hochaufgelöste Oberfläche (4096 × 2048) erzeugt – in Web
+  Workern parallel im Hintergrund, die Animation läuft weiter. Wechselt man den Körper, wird sie
+  verworfen. Die Bildschirmauflösung der Kugel passt sich automatisch der Gerätegeschwindigkeit an.
 - **Zeitsteuerung:** Echtzeit (LIVE), Zeitraffer bis 1 Jahr pro Sekunde, rückwärts, Pause, Sprung zu einem Datum, „Jetzt“.
 - **Zoom & Navigation:** Mausrad / Pinch zum Zoomen, Ziehen zum Verschieben,
   Shift + Ziehen (oder rechte Maustaste) zum Kippen. Klick auf einen Planeten zeigt Infos,

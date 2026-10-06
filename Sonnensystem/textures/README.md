@@ -15,12 +15,15 @@ Hier die Karten mit genau diesen Dateinamen ablegen (andere Namen: `TEXTURE_FILE
 | `uranus.jpg` | Uranus |
 | `neptune.jpg` | Neptun |
 | `pluto.jpg` | Pluto |
+| `io.jpg`, `europa.jpg`, `ganymede.jpg`, `callisto.jpg` | Jupitermonde |
+| `titan.jpg` | Titan |
 | `saturn_ring.png` | Saturnring als Streifen (links innen → rechts außen, mit Transparenz) |
 
 **Format:** equirektangular (2:1), linker Rand = 180° West, Bildmitte = 0° (Nullmeridian), Norden oben.
 So sind z. B. die Karten von [Solar System Scope](https://www.solarsystemscope.com/textures/)
 (CC BY 4.0 – Quellenangabe nötig) und NASA Blue Marble aufgebaut. 2k-Auflösung reicht völlig;
-größere Bilder werden beim Laden auf 2048 px Breite verkleinert.
+größere Bilder werden zunächst auf 2048 px Breite verkleinert; beim nahen Heranzoomen wird für den
+beobachteten Körper die volle Auflösung (bis 4096 px) verwendet – 4k- oder 8k-Karten lohnen sich also.
 
 Für den Ring geht die Darstellung davon aus, dass der Streifen von 1,11 bis 2,33 Saturnradien reicht
 (`RING_IMG_INNER` / `RING_IMG_OUTER` in `solar.js`), passend zu `2k_saturn_ring_alpha.png`.
