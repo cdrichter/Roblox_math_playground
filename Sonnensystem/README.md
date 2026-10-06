@@ -43,6 +43,22 @@ python3 -m http.server 8000     # dann http://localhost:8000 öffnen
 
 Tastatur: `Leertaste` Pause · `+`/`-` Zoom · `0` Gesamtansicht · `N` Jetzt · `Esc` Auswahl aufheben
 
+## Detailseiten (Popup)
+
+Über „Details & häufige Fragen“ in der Infotafel öffnet sich zu jedem Himmelskörper ein Popup mit
+Zusammenfassung, Steckbrief, den 5 häufigsten Fragen und aktuellen Live-Daten. Die Texte liegen
+pro Planet und Mond in einer eigenen Datei im Ordner [`inhalte/`](inhalte/README.md) und lassen
+sich dort direkt bearbeiten. Direktlinks: `index.html#erde`, `index.html#titan` usw.
+
+## Footer, Rechtliches und Werbung
+
+- Footer mit Links zu `about.html`, `privacy.html` (Datenschutz) und `impressum.html`.
+  Datenschutz und Impressum sind **Vorlagen** mit markierten Platzhaltern `[…]`, die vor der
+  Veröffentlichung ausgefüllt und geprüft werden müssen.
+- Werbe-Platzhalter (`class="ad-slot"`, Attribut `data-ad-slot`): links auf der Hauptseite
+  (300 × 250, nur auf großen Bildschirmen), im Popup und auf der About-Seite. Beim Einbinden
+  eines Werbenetzwerks die Datenschutzerklärung ergänzen und ein Einwilligungs-Banner vorsehen.
+
 ## Erde
 
 Die Erde zeigt die echten Kontinente, Seen und Eisschilde: Die Küstenlinien stammen aus
@@ -64,3 +80,5 @@ Fehlt ein Bild, wird automatisch die erzeugte Ersatztextur verwendet.
 - `solar.js` – Bahnberechnung, Rotation, Darstellung und Bedienung
 - `earth-data.js` – Küstenlinien, Seen und Gletscher der Erde (Natural Earth)
 - `tools/make_earth_data.py` – erzeugt `earth-data.js` aus den Natural-Earth-GeoJSON-Dateien
+- `inhalte/` – Texte der Detailseiten (ein File pro Planet/Mond)
+- `about.html`, `privacy.html`, `impressum.html` – Unterseiten im Footer

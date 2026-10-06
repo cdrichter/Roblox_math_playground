@@ -1484,6 +1484,7 @@
 
   let lastHud = 0;
   function updateHud(now) {
+    updateDetailLive(false);
     if (now - lastHud < 200) return;
     lastHud = now;
     const d = new Date(state.simMs);
@@ -1538,7 +1539,26 @@
   function updateInfo() {
     const b = state.selected;
     if (!b) return;
-    const rows = b.facts.slice();
+    const rows = b.facts.concat(liveRows(b));
+    const dl = $('infoList');
+    dl.innerHTML = '';
+    fillList(dl, rows);
+    $('followBtn').textContent = state.follow === b ? 'Folgen beenden' : 'Folgen & heranzoomen';
+  }
+
+  function fillList(dl, rows) {
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      dl.append(dt, dd);
+    }
+  }
+
+  // aktuelle, berechnete Werte (Abstände, Geschwindigkeit, Drehung …)
+  function liveRows(b) {
+    const rows = [];
     const earth = byId.earth;
     const sunDist = len(b.helio);
     if (b.id !== 'sun') {
@@ -1569,16 +1589,128 @@
       // gebundene Rotation: Punkt, über dem der Planet steht – bleibt nahe 0° (Erdmond: ± Libration)
       rows.push([`${b.parentBody.name} im Zenit über`, fmtLon(subPointLon(b, [-b.geo[0], -b.geo[1], -b.geo[2]]))]);
     }
-    const dl = $('infoList');
-    dl.innerHTML = '';
-    for (const [k, v] of rows) {
-      const dt = document.createElement('dt');
-      dt.textContent = k;
-      const dd = document.createElement('dd');
-      dd.textContent = v;
-      dl.append(dt, dd);
+    return rows;
+  }
+
+  // ------------------------------------------------------------------ Detailseite (Popup)
+  // Die Texte liegen pro Himmelskörper in inhalte/… und werden erst beim Öffnen geladen.
+  const CONTENT_FILES = {
+    sun: 'inhalte/sonne.js',
+    mercury: 'inhalte/planeten/merkur.js',
+    venus: 'inhalte/planeten/venus.js',
+    earth: 'inhalte/planeten/erde.js',
+    moon: 'inhalte/monde/mond.js',
+    mars: 'inhalte/planeten/mars.js',
+    jupiter: 'inhalte/planeten/jupiter.js',
+    io: 'inhalte/monde/io.js',
+    europa: 'inhalte/monde/europa.js',
+    ganymede: 'inhalte/monde/ganymed.js',
+    callisto: 'inhalte/monde/kallisto.js',
+    saturn: 'inhalte/planeten/saturn.js',
+    titan: 'inhalte/monde/titan.js',
+    uranus: 'inhalte/planeten/uranus.js',
+    neptune: 'inhalte/planeten/neptun.js',
+    pluto: 'inhalte/zwergplaneten/pluto.js',
+  };
+  // Kurzname für Direktlinks, z. B. index.html#erde
+  const slugOf = (id) => CONTENT_FILES[id].split('/').pop().replace('.js', '');
+
+  const Inhalte = (window.SonnensystemInhalte = window.SonnensystemInhalte || {
+    daten: {},
+    register(id, daten) { this.daten[id] = daten; },
+  });
+  const contentLoads = {};
+
+  // Inhalt per <script> nachladen (funktioniert auch ohne Webserver, anders als fetch)
+  function loadContent(id) {
+    if (Inhalte.daten[id]) return Promise.resolve(Inhalte.daten[id]);
+    if (!contentLoads[id]) {
+      contentLoads[id] = new Promise((resolve, reject) => {
+        const el = document.createElement('script');
+        el.src = CONTENT_FILES[id];
+        el.onload = () => (Inhalte.daten[id] ? resolve(Inhalte.daten[id]) : reject(new Error('leer')));
+        el.onerror = reject;
+        document.head.append(el);
+      }).catch((err) => {
+        delete contentLoads[id]; // erneuter Versuch beim nächsten Öffnen
+        throw err;
+      });
     }
-    $('followBtn').textContent = state.follow === b ? 'Folgen beenden' : 'Folgen & heranzoomen';
+    return contentLoads[id];
+  }
+
+  const detail = { body: null, lastFocus: null, lastLive: 0 };
+
+  function openDetail(b) {
+    if (!b || !CONTENT_FILES[b.id]) return;
+    if (state.selected !== b) select(b);
+    detail.body = b;
+    detail.lastFocus = document.activeElement;
+    const m = $('detail');
+    m.classList.remove('hidden');
+    m.querySelector('.modal-box').scrollTop = 0;
+    $('detailDot').style.background = b.color;
+    $('detailTitle').textContent = b.name;
+    $('detailSub').textContent = b.type;
+    $('detailSummary').replaceChildren(textEl('p', 'Inhalt wird geladen …'));
+    $('detailFacts').replaceChildren();
+    $('detailFaq').replaceChildren();
+    updateDetailLive(true);
+    history.replaceState(null, '', '#' + slugOf(b.id));
+    $('detailClose').focus();
+    loadContent(b.id).then(
+      (d) => {
+        if (detail.body !== b) return;
+        $('detailTitle').textContent = d.titel || b.name;
+        $('detailSub').textContent = d.untertitel || b.type;
+        $('detailSummary').replaceChildren(...(d.zusammenfassung || []).map((t) => textEl('p', t)));
+        const facts = $('detailFacts');
+        facts.replaceChildren();
+        fillList(facts, d.steckbrief || []);
+        $('detailFaq').replaceChildren(
+          ...(d.fragen || []).map((f, i) => {
+            const det = document.createElement('details');
+            if (i === 0) det.open = true;
+            det.append(textEl('summary', f.frage), textEl('p', f.antwort));
+            return det;
+          })
+        );
+      },
+      () => {
+        if (detail.body !== b) return;
+        $('detailSummary').replaceChildren(textEl('p', `Die Inhaltsdatei ${CONTENT_FILES[b.id]} konnte nicht geladen werden.`));
+      }
+    );
+  }
+
+  function closeDetail() {
+    if (!detail.body) return;
+    detail.body = null;
+    $('detail').classList.add('hidden');
+    history.replaceState(null, '', location.pathname + location.search);
+    if (detail.lastFocus && detail.lastFocus.focus) detail.lastFocus.focus();
+  }
+
+  function updateDetailLive(force) {
+    const b = detail.body;
+    if (!b || (!force && performance.now() - detail.lastLive < 500)) return;
+    detail.lastLive = performance.now();
+    const dl = $('detailLive');
+    dl.replaceChildren();
+    fillList(dl, liveRows(b));
+    $('detailTime').textContent = fmtDate.format(new Date(state.simMs));
+  }
+
+  function textEl(tag, text) {
+    const el = document.createElement(tag);
+    el.textContent = text;
+    return el;
+  }
+
+  function openDetailFromHash() {
+    const slug = decodeURIComponent(location.hash.slice(1)).toLowerCase();
+    const id = Object.keys(CONTENT_FILES).find((k) => slugOf(k) === slug);
+    if (id) openDetail(byId[id]);
   }
 
   function subPointLon(b, dir) {
@@ -1662,6 +1794,10 @@
       state.follow = null;
       select(null);
     });
+    $('detailBtn').addEventListener('click', () => openDetail(state.selected));
+    $('detailClose').addEventListener('click', closeDetail);
+    $('detail').addEventListener('click', (e) => { if (e.target.id === 'detail') closeDetail(); });
+    window.addEventListener('hashchange', openDetailFromHash);
     $('followBtn').addEventListener('click', () => {
       if (state.follow === state.selected) {
         state.follow = null;
@@ -1692,6 +1828,11 @@
     $('optTilt').addEventListener('input', (e) => setTilt(Number(e.target.value) * DEG));
 
     window.addEventListener('keydown', (e) => {
+      if (detail.body) {
+        // Popup offen: nur Esc schließt, sonst keine Tastenkürzel für die Animation
+        if (e.key === 'Escape') closeDetail();
+        return;
+      }
       if (e.target.tagName === 'INPUT' && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
       if (e.key === ' ') { e.preventDefault(); togglePlay(); }
       else if (e.key === '+' || e.key === '=') zoomAt(W / 2, H / 2, 1.4);
@@ -1925,4 +2066,5 @@
   computePositions();
   cam.scale = fitScale();
   requestAnimationFrame(frame);
+  openDetailFromHash();
 })();

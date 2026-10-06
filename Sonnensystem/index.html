@@ -25,7 +25,15 @@
     <h2 id="infoName"></h2>
     <p id="infoType" class="sub"></p>
     <dl id="infoList"></dl>
+    <button id="detailBtn" class="btn wide accent">Details &amp; häufige Fragen</button>
     <button id="followBtn" class="btn wide">Folgen &amp; heranzoomen</button>
+  </aside>
+
+  <!-- Werbe-Platzhalter Hauptseite (nur auf großen Bildschirmen sichtbar).
+       Später z. B. durch den Code eines Werbenetzwerks ersetzen; Datenschutzerklärung anpassen! -->
+  <aside class="ad-slot ad-main" data-ad-slot="hauptseite-links" aria-label="Anzeige">
+    <span>Anzeige</span>
+    <small>Platzhalter 300 × 250</small>
   </aside>
 
   <div class="zoom">
@@ -52,6 +60,55 @@
       <label class="toggle"><input id="optBelts" type="checkbox" checked> Asteroiden</label>
       <label class="tilt">Neigung <input id="optTilt" type="range" min="0" max="88" value="35"></label>
     </div>
+  </footer>
+
+  <!-- Detailseite eines Himmelskörpers (Inhalte aus dem Ordner inhalte/) -->
+  <div id="detail" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <article class="modal-box panel">
+      <button id="detailClose" class="close" title="Schließen (Esc)">×</button>
+      <header class="detail-head">
+        <span id="detailDot" class="detail-dot"></span>
+        <div>
+          <h2 id="detailTitle"></h2>
+          <p id="detailSub" class="sub"></p>
+        </div>
+      </header>
+
+      <section>
+        <h3>Zusammenfassung</h3>
+        <div id="detailSummary" class="detail-text"></div>
+      </section>
+
+      <section>
+        <h3>Steckbrief</h3>
+        <dl id="detailFacts" class="detail-list"></dl>
+      </section>
+
+      <!-- Werbe-Platzhalter im Popup -->
+      <aside class="ad-slot ad-inline" data-ad-slot="popup" aria-label="Anzeige">
+        <span>Anzeige</span>
+        <small>Platzhalter responsiv (z. B. 728 × 90 / 300 × 250)</small>
+      </aside>
+
+      <section>
+        <h3>Häufige Fragen</h3>
+        <div id="detailFaq" class="faq"></div>
+      </section>
+
+      <section>
+        <h3>Live-Daten <span id="detailTime" class="sub"></span></h3>
+        <dl id="detailLive" class="detail-list"></dl>
+      </section>
+    </article>
+  </div>
+
+  <footer class="sitefooter">
+    <span>© 2026 Sonnensystem live</span>
+    <nav aria-label="Rechtliches">
+      <a href="about.html">About</a> ·
+      <a href="privacy.html">Privacy</a> ·
+      <a href="impressum.html">Impressum</a>
+    </nav>
   </footer>
 
   <script src="earth-data.js"></script>
