@@ -6,7 +6,13 @@
  *   (E. M. Standish, "Approximate Positions of the Planets", gültig 1800–2050).
  * Eigenrotation: Nullmeridian-Winkel W = W0 + W1·d nach IAU WGCCRE,
  *   d = Tage seit J2000 – dadurch steht jede Rotation so wie zum gewählten Zeitpunkt.
- * Mond: vereinfachte Mondtheorie (Hauptterme).
+ * Achsen: Nordpol-Richtung (Rektaszension/Deklination) nach IAU – jede Kugel wird
+ *   in 3D gedreht, d. h. Achsneigung und Blickrichtung werden berücksichtigt.
+ * Mond: vereinfachte Mondtheorie (Hauptterme), gebundene Rotation nach IAU.
+ *
+ * Echte Bilder: equirektangulare Karten (2:1, Länge −180°…+180°, Norden oben) in den
+ *   Ordner "textures/" legen – Dateinamen siehe TEXTURE_FILES. Fehlt ein Bild, wird eine
+ *   erzeugte Textur verwendet.
  */
 (() => {
   const DEG = Math.PI / 180;
@@ -65,7 +71,7 @@
     return dl * dl + dn * dn;
   };
 
-  // Erzeugt eine Equirectangular-Textur (Länge 0..360°, Breite +90..−90°)
+  // Erzeugt eine Equirectangular-Textur (Länge −180..+180°, Breite +90..−90°)
   function makeTexture(fn, w = 256, h = 128) {
     const c = document.createElement('canvas');
     c.width = w;
@@ -77,7 +83,7 @@
       const lat = (0.5 - (y + 0.5) / h) * Math.PI;
       const cl = Math.cos(lat), sl = Math.sin(lat);
       for (let x = 0; x < w; x++) {
-        const lon = ((x + 0.5) / w) * TAU;
+        const lon = ((x + 0.5) / w) * TAU - Math.PI;
         const col = fn(cl * Math.cos(lon), cl * Math.sin(lon), sl, lat, lon);
         const i = (y * w + x) * 4;
         d[i] = col[0];
@@ -87,6 +93,64 @@
       }
     }
     ctx.putImageData(img, 0, 0);
+    return texFromCanvas(c);
+  }
+
+  // Textur als gepackte Pixel + Zonalmittel je Zeile (für Bewegungsunschärfe bei schneller Drehung)
+  function texFromCanvas(c) {
+    const w = c.width, h = c.height;
+    const px = new Uint32Array(c.getContext('2d').getImageData(0, 0, w, h).data.buffer);
+    const mean = new Uint32Array(h);
+    for (let y = 0; y < h; y++) {
+      let r = 0, g = 0, b = 0;
+      for (let x = 0; x < w; x++) {
+        const p = px[y * w + x];
+        r += p & 255;
+        g += (p >>> 8) & 255;
+        b += (p >>> 16) & 255;
+      }
+      mean[y] = (Math.round(r / w) | (Math.round(g / w) << 8) | (Math.round(b / w) << 16)) >>> 0;
+    }
+    return { w, h, px, mean };
+  }
+
+  // ------------------------------------------------------------------ echte Bilder (optional)
+  // Equirektangulare Karten, z. B. von solarsystemscope.com/textures (CC BY 4.0) oder NASA.
+  const TEXTURE_FILES = {
+    sun: 'textures/sun.jpg',
+    mercury: 'textures/mercury.jpg',
+    venus: 'textures/venus.jpg',
+    earth: 'textures/earth.jpg',
+    moon: 'textures/moon.jpg',
+    mars: 'textures/mars.jpg',
+    jupiter: 'textures/jupiter.jpg',
+    saturn: 'textures/saturn.jpg',
+    uranus: 'textures/uranus.jpg',
+    neptune: 'textures/neptune.jpg',
+    pluto: 'textures/pluto.jpg',
+  };
+  // Ringstreifen: links innen → rechts außen, mit Transparenz (z. B. 2k_saturn_ring_alpha.png)
+  const RING_FILE = 'textures/saturn_ring.png';
+  const RING_IMG_INNER = 1.11, RING_IMG_OUTER = 2.33; // in Saturnradien
+
+  const loadImage = (src) =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+
+  // Bild auf max. 2048 px Breite in eine Canvas zeichnen. Wirft SecurityError bei file://.
+  function imageToCanvas(img, maxW = 2048) {
+    const w = Math.min(img.naturalWidth, maxW);
+    const h = Math.max(1, Math.round((img.naturalHeight * w) / img.naturalWidth));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const cx = c.getContext('2d');
+    cx.drawImage(img, 0, 0, w, h);
+    cx.getImageData(0, 0, 1, 1); // löst bei blockiertem Zugriff sofort den Fehler aus
     return c;
   }
 
@@ -249,19 +313,49 @@
       facts: [['Durchmesser', '2.377 km'], ['Umlaufzeit', '248 Jahre'], ['Rotation', '6,4 Tage (rückläufig)'], ['Monde', '5']],
     },
   ];
+  // Nordpol der Rotationsachse [α0, δ0] in Grad (IAU WGCCRE, äquatorial J2000)
+  const POLES = {
+    sun: [286.13, 63.87],
+    mercury: [281.0103, 61.4155],
+    venus: [272.76, 67.16],
+    earth: [0, 90],
+    moon: [269.9949, 66.5392],
+    mars: [317.269, 54.432],
+    jupiter: [268.056595, 64.495303],
+    saturn: [40.589, 83.537],
+    uranus: [257.311, -15.175],
+    neptune: [299.36, 43.46],
+    pluto: [132.993, -6.163],
+  };
+  for (const b of BODIES) b.pole = POLES[b.id];
   const byId = Object.fromEntries(BODIES.map((b) => [b.id, b]));
   const PLANETS = BODIES.filter((b) => b.el);
 
-  // Saturn-Rotationsachse (IAU: α = 40.589°, δ = 83.537°) → ekliptikale Koordinaten
-  const SATURN_POLE = (() => {
-    const a = 40.589 * DEG, d = 83.537 * DEG;
-    const x = Math.cos(d) * Math.cos(a), y = Math.cos(d) * Math.sin(a), z = Math.sin(d);
-    return [x, y * Math.cos(OBLIQUITY) + z * Math.sin(OBLIQUITY), -y * Math.sin(OBLIQUITY) + z * Math.cos(OBLIQUITY)];
-  })();
+  // äquatorial (J2000) → ekliptikal
+  const eqToEcl = (v) => [
+    v[0],
+    v[1] * Math.cos(OBLIQUITY) + v[2] * Math.sin(OBLIQUITY),
+    -v[1] * Math.sin(OBLIQUITY) + v[2] * Math.cos(OBLIQUITY),
+  ];
+
+  // Körperfestes Achsensystem nach IAU: P = Nordpol, X = Nullmeridian, Y = 90° Ost.
+  // X entsteht, indem der Knoten Q (Schnitt Äquator des Körpers / Himmelsäquator)
+  // um den Winkel W um P gedreht wird.
+  function bodyAxes(b, W) {
+    const a = b.pole[0] * DEG, d = b.pole[1] * DEG;
+    const P = [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)];
+    const Q = [-Math.sin(a), Math.cos(a), 0];
+    const PQ = [P[1] * Q[2] - P[2] * Q[1], P[2] * Q[0] - P[0] * Q[2], P[0] * Q[1] - P[1] * Q[0]];
+    const c = Math.cos(W), s = Math.sin(W);
+    const X = [Q[0] * c + PQ[0] * s, Q[1] * c + PQ[1] * s, Q[2] * c + PQ[2] * s];
+    const Y = [P[1] * X[2] - P[2] * X[1], P[2] * X[0] - P[0] * X[2], P[0] * X[1] - P[1] * X[0]];
+    return { X: eqToEcl(X), Y: eqToEcl(Y), P: eqToEcl(P) };
+  }
+  // Erzeugte Ringe: [innen, außen, r, g, b, alpha] in Saturnradien
   const RING_BANDS = [
-    [1.24, 1.53, 'rgba(150,135,110,0.35)'],
-    [1.53, 1.95, 'rgba(225,205,165,0.85)'],
-    [2.03, 2.27, 'rgba(200,180,140,0.7)'],
+    [1.24, 1.53, 150, 135, 110, 0.35],
+    [1.53, 1.95, 225, 205, 165, 0.85],
+    [2.03, 2.27, 200, 180, 140, 0.7],
   ];
 
   // ------------------------------------------------------------------ Bahnmechanik
@@ -439,6 +533,10 @@
   const sx = (X) => W / 2 + (X - cam.x) * cam.scale;
   const sy = (Y) => H / 2 - (Y - cam.y) * cam.scale;
 
+  function projectVec(v) {
+    return [v[0], v[1] * ct + v[2] * st, -v[1] * st + v[2] * ct];
+  }
+
   function viewDir(v) {
     const p = project(v);
     const l = Math.hypot(p.X, p.Y, p.D) || 1;
@@ -468,9 +566,17 @@
     moon.disp = [earth.disp[0] + (geo[0] / gl) * off, earth.disp[1] + (geo[1] / gl) * off, earth.disp[2] + (geo[2] / gl) * off];
     moon.geoDisp = off;
 
+    // Mond: Hauptterme der IAU-Lösung (Präzession der Mondachse um den Ekliptikpol, 18,6 Jahre)
+    const E1 = (125.045 - 0.0529921 * state.days) * DEG, E2 = (250.089 - 0.1059842 * state.days) * DEG;
+    moon.pole = [269.9949 - 3.8787 * Math.sin(E1) - 0.1204 * Math.sin(E2), 66.5392 + 1.5419 * Math.cos(E1) + 0.0239 * Math.cos(E2)];
+    moon.rotExtra = 3.561 * Math.sin(E1) + 0.1208 * Math.sin(E2);
+
     for (const b of BODIES) {
       b.p = project(b.disp);
-      b.spin = ((b.rot[0] + b.rot[1] * state.days) % 360) * DEG;
+      b.spin = ((b.rot[0] + b.rot[1] * state.days + (b.rotExtra || 0)) % 360) * DEG;
+      const ax = bodyAxes(b, b.spin);
+      b.axes = ax;
+      b.viewAxes = { X: projectVec(ax.X), Y: projectVec(ax.Y), P: projectVec(ax.P) };
     }
 
     if (orbitCache.T === null || Math.abs(orbitCache.T - state.T) > 0.05) {
@@ -589,7 +695,7 @@
         if (i === 0) ctx.moveTo(sx(p.X), sy(p.Y));
         else ctx.lineTo(sx(p.X), sy(p.Y));
       }
-      ctx.strokeStyle = 'rgba(200,200,200,0.3)';
+      ctx.strokeStyle = `rgba(200,200,200,${(0.3 + (1 - (moon.alpha ?? 1)) * 0.6).toFixed(2)})`;
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -627,40 +733,13 @@
     ctx.globalAlpha = 1;
   }
 
-  // Texturierte Kugel: pixelgenaue orthografische Projektion der Textur.
-  // Pro Scheibengröße wird eine Tabelle (Breite → Texturzeile, Länge → Spaltenanteil) gecacht,
-  // pro Frame wird nur noch der Drehwinkel addiert.
-  const TEX_W = 256, TEX_H = 128;
-  const sphereLUTs = new Map();
-  function sphereLUT(N) {
-    let lut = sphereLUTs.get(N);
-    if (lut) return lut;
-    const idx = [], row = [], lon = [], alpha = [];
-    for (let py = 0; py < N; py++) {
-      const v0 = 1 - ((py + 0.5) / N) * 2;
-      for (let px = 0; px < N; px++) {
-        const u0 = ((px + 0.5) / N) * 2 - 1;
-        const d = Math.hypot(u0, v0);
-        const cov = clamp((1 - d) * (N / 2) + 0.5); // Kantenglättung
-        if (cov <= 0) continue;
-        const k = d > 1 ? 1 / d : 1;
-        const u = u0 * k, v = v0 * k;
-        const lat = Math.asin(clamp(v, -1, 1));
-        const cl = Math.cos(lat);
-        idx.push(py * N + px);
-        row.push(Math.min(TEX_H - 1, Math.floor((0.5 - lat / Math.PI) * TEX_H)) * TEX_W);
-        lon.push(Math.asin(clamp(u / (cl || 1e-9), -1, 1)) / TAU + 1);
-        alpha.push(Math.round(cov * 255) << 24);
-      }
-    }
-    lut = { idx: Int32Array.from(idx), row: Int32Array.from(row), lon: Float32Array.from(lon), alpha: Uint32Array.from(alpha) };
-    if (sphereLUTs.size > 40) sphereLUTs.clear();
-    sphereLUTs.set(N, lut);
-    return lut;
-  }
-
+  // Texturierte Kugel, Pixel für Pixel: Für jeden sichtbaren Punkt (u, v, w) der Scheibe wird
+  // über die körperfesten Achsen (Pol + Nullmeridian, in Blickkoordinaten) die geografische
+  // Breite/Länge bestimmt. Dadurch stimmen Drehwinkel, Drehrichtung, Achsneigung und
+  // Blickrichtung – z. B. zeigt der Mond der Erde immer dieselbe Seite.
+  // blur (0..1): Mischung mit dem Zonalmittel, wenn die Drehung zu schnell für die Bildrate ist.
   function drawSphere(b, x, y, r) {
-    const N = clamp(Math.round(2 * r * DPR), 8, 520) | 0;
+    const N = clamp(Math.round(2 * r * DPR), 8, 440) | 0;
     if (!b.sphere || b.sphere.N !== N) {
       const c = document.createElement('canvas');
       c.width = c.height = N;
@@ -668,11 +747,42 @@
       const img = cx.createImageData(N, N);
       b.sphere = { N, canvas: c, ctx: cx, img, px: new Uint32Array(img.data.buffer) };
     }
-    const S = b.sphere, lut = sphereLUT(N), tex = b.texPx, out = S.px;
-    const shift = ((-b.spin / TAU) % 1 + 1) % 1; // sichtbare Länge in der Scheibenmitte
-    for (let i = 0; i < lut.idx.length; i++) {
-      const tx = ((lut.lon[i] + shift) * TEX_W | 0) % TEX_W;
-      out[lut.idx[i]] = ((tex[lut.row[i] + tx] & 0xffffff) | lut.alpha[i]) >>> 0;
+    const S = b.sphere, out = S.px;
+    const { w: TW, h: TH, px: tex, mean } = b.tex;
+    const { X, Y, P } = b.viewAxes;
+    const blur = b.blur || 0, keep = 1 - blur;
+    const inv = 2 / N, half = N / 2, lim = (1 + inv) * (1 + inv);
+    let i = 0;
+    for (let py = 0; py < N; py++) {
+      const v0 = 1 - (py + 0.5) * inv;
+      for (let px = 0; px < N; px++, i++) {
+        const u0 = (px + 0.5) * inv - 1;
+        const d2 = u0 * u0 + v0 * v0;
+        if (d2 > lim) { out[i] = 0; continue; }
+        const d = Math.sqrt(d2);
+        const cov = (1 - d) * half + 0.5; // Kantenglättung
+        if (cov <= 0) { out[i] = 0; continue; }
+        const k = d > 1 ? 1 / d : 1;
+        const u = u0 * k, v = v0 * k;
+        const w = Math.sqrt(Math.max(0, 1 - u * u - v * v));
+        const bx = u * X[0] + v * X[1] + w * X[2];
+        const by = u * Y[0] + v * Y[1] + w * Y[2];
+        const bz = u * P[0] + v * P[1] + w * P[2];
+        const lat = Math.asin(bz > 1 ? 1 : bz < -1 ? -1 : bz);
+        const lon = Math.atan2(by, bx);
+        let ty = ((0.5 - lat / Math.PI) * TH) | 0;
+        if (ty >= TH) ty = TH - 1;
+        let tx = ((lon / TAU + 0.5) * TW) | 0;
+        if (tx >= TW) tx -= TW;
+        let c = tex[ty * TW + tx];
+        if (blur > 0) {
+          const m = mean[ty];
+          c = ((c & 255) * keep + (m & 255) * blur) |
+            ((((c >>> 8) & 255) * keep + ((m >>> 8) & 255) * blur) << 8) |
+            ((((c >>> 16) & 255) * keep + ((m >>> 16) & 255) * blur) << 16);
+        }
+        out[i] = ((c & 0xffffff) | ((cov >= 1 ? 255 : (cov * 255) | 0) << 24)) >>> 0;
+      }
     }
     S.ctx.putImageData(S.img, 0, 0);
     ctx.save();
@@ -680,7 +790,7 @@
     // Randverdunkelung
     const g = ctx.createRadialGradient(x, y, r * 0.55, x, y, r);
     g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(1, b.id === 'sun' ? 'rgba(160,40,0,0.45)' : 'rgba(0,0,0,0.35)');
+    g.addColorStop(1, b.id === 'sun' ? 'rgba(160,40,0,0.45)' : 'rgba(0,0,0,0.3)');
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, TAU);
@@ -706,8 +816,56 @@
     ctx.restore();
   }
 
+  // Ringe als Draufsicht-Bild (Kreisring) vorberechnen; gezeichnet wird es gestaucht zur Ellipse.
+  const RING_SIZE = 1024;
+  let ringImage = null; // { canvas, outer } – outer in Saturnradien
+
+  function buildRingImage(sample, outer) {
+    const c = document.createElement('canvas');
+    c.width = c.height = RING_SIZE;
+    const cx = c.getContext('2d');
+    const img = cx.createImageData(RING_SIZE, RING_SIZE);
+    const d = img.data, h = RING_SIZE / 2;
+    for (let y = 0; y < RING_SIZE; y++) {
+      for (let x = 0; x < RING_SIZE; x++) {
+        const rho = (Math.hypot(x + 0.5 - h, y + 0.5 - h) / h) * outer;
+        const col = sample(rho);
+        if (!col) continue;
+        const i = (y * RING_SIZE + x) * 4;
+        d[i] = col[0];
+        d[i + 1] = col[1];
+        d[i + 2] = col[2];
+        d[i + 3] = col[3];
+      }
+    }
+    cx.putImageData(img, 0, 0);
+    return { canvas: c, outer };
+  }
+
+  function proceduralRings() {
+    return buildRingImage((rho) => {
+      for (const [ri, ro, r, g, b, a] of RING_BANDS) {
+        if (rho >= ri && rho <= ro) {
+          const fine = 0.93 + 0.07 * Math.sin(rho * 45);
+          return [r * fine, g * fine, b * fine, a * 255];
+        }
+      }
+      return null;
+    }, 2.3);
+  }
+
+  function ringsFromStrip(stripCanvas) {
+    const w = stripCanvas.width, hgt = stripCanvas.height;
+    const data = stripCanvas.getContext('2d').getImageData(0, Math.floor(hgt / 2), w, 1).data;
+    return buildRingImage((rho) => {
+      if (rho < RING_IMG_INNER || rho > RING_IMG_OUTER) return null;
+      const i = Math.min(w - 1, Math.floor(((rho - RING_IMG_INNER) / (RING_IMG_OUTER - RING_IMG_INNER)) * w)) * 4;
+      return [data[i], data[i + 1], data[i + 2], data[i + 3]];
+    }, RING_IMG_OUTER);
+  }
+
   function ringGeometry() {
-    const N = viewDir(SATURN_POLE);
+    const N = byId.saturn.viewAxes.P; // Ringebene = Äquatorebene des Saturn
     const s = Math.hypot(N[0], N[1]);
     const ang = s < 1e-6 ? 0 : Math.atan2(-N[1], N[0]);
     return { ang, open: Math.abs(N[2]), nearRight: N[2] < 0 };
@@ -715,23 +873,18 @@
 
   function drawRings(x, y, r, half) {
     const g = ringGeometry();
+    const R = r * ringImage.outer;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(g.ang);
     if (half) {
       ctx.beginPath();
-      const R = r * 2.4;
-      if (g.nearRight) ctx.rect(0, -R, R, 2 * R);
-      else ctx.rect(-R, -R, R, 2 * R);
+      if (g.nearRight) ctx.rect(0, -R - 1, R + 1, 2 * R + 2);
+      else ctx.rect(-R - 1, -R - 1, R + 1, 2 * R + 2);
       ctx.clip();
     }
-    for (const [ri, ro, col] of RING_BANDS) {
-      ctx.beginPath();
-      ctx.ellipse(0, 0, Math.max(0.2, ro * r * g.open), ro * r, 0, 0, TAU);
-      ctx.ellipse(0, 0, Math.max(0.1, ri * r * g.open), ri * r, 0, 0, TAU);
-      ctx.fillStyle = col;
-      ctx.fill('evenodd');
-    }
+    ctx.scale(Math.max(g.open, 0.004), 1);
+    ctx.drawImage(ringImage.canvas, -R, -R, 2 * R, 2 * R);
     ctx.restore();
   }
 
@@ -765,6 +918,7 @@
       const margin = b.rings ? r * 2.4 : b.id === 'sun' ? r * 4 + 30 : r;
       if (x < -margin || y < -margin || x > W + margin || y > H + margin) continue;
 
+      ctx.globalAlpha = b.alpha ?? 1;
       if (b.id === 'sun') drawSunGlow(x, y, r);
       if (b.rings && r > 2) drawRings(x, y, r, false);
 
@@ -778,6 +932,7 @@
         if (b.id !== 'sun') drawNightSide(b, x, y, r);
       }
       if (b.rings && r > 2) drawRings(x, y, r, true);
+      ctx.globalAlpha = 1;
 
       if (b === state.selected) {
         ctx.beginPath();
@@ -902,6 +1057,17 @@
     }
     const spinDeg = ((b.spin / DEG) % 360 + 360) % 360;
     rows.push(['Drehwinkel (Nullmeridian)', `${nf(spinDeg, 1)}°`]);
+    rows.push(['Achsneigung', `${nf(axialTilt(b), 1)}°`]);
+    rows.push(['1 Umdrehung im Bild', animRotation(b)]);
+    if (b.id === 'earth') {
+      // Länge, über der die Sonne gerade im Zenit steht (12 Uhr Ortszeit)
+      rows.push(['Sonne im Zenit über', fmtLon(subPointLon(b, [-b.helio[0], -b.helio[1], -b.helio[2]]))]);
+    }
+    if (b.id === 'moon') {
+      // gebundene Rotation: Punkt, über dem die Erde steht – bleibt nahe 0° (± Libration)
+      const toEarth = [earth.helio[0] - b.helio[0], earth.helio[1] - b.helio[1], earth.helio[2] - b.helio[2]];
+      rows.push(['Erde im Zenit über', fmtLon(subPointLon(b, toEarth))]);
+    }
     const dl = $('infoList');
     dl.innerHTML = '';
     for (const [k, v] of rows) {
@@ -912,6 +1078,35 @@
       dl.append(dt, dd);
     }
     $('followBtn').textContent = state.follow === b ? 'Folgen beenden' : 'Folgen & heranzoomen';
+  }
+
+  function subPointLon(b, dir) {
+    const { X, Y } = b.axes;
+    return Math.atan2(dir[0] * Y[0] + dir[1] * Y[1] + dir[2] * Y[2], dir[0] * X[0] + dir[1] * X[1] + dir[2] * X[2]) / DEG;
+  }
+
+  const fmtLon = (l) => (Math.abs(l) < 0.05 ? '0,0°' : `${nf(Math.abs(l), 1)}° ${l > 0 ? 'Ost' : 'West'}`);
+
+  // Neigung der Drehachse gegen die eigene Bahnebene (Sonne/Mond: gegen die Ekliptik)
+  function axialTilt(b) {
+    let n = [0, 0, 1];
+    if (b.el) {
+      const el = elementsAt(b, state.T);
+      n = [Math.sin(el.I) * Math.sin(el.node), -Math.sin(el.I) * Math.cos(el.node), Math.cos(el.I)];
+    }
+    // Drehimpulsrichtung: bei rückläufiger Rotation (Venus, Uranus) zeigt sie zum Südpol
+    const P = b.axes.P, sgn = Math.sign(b.rot[1]);
+    return Math.acos(clamp(sgn * (n[0] * P[0] + n[1] * P[1] + n[2] * P[2]), -1, 1)) / DEG;
+  }
+
+  // Wie lange eine Umdrehung bei der gewählten Geschwindigkeit auf dem Bildschirm dauert
+  function animRotation(b) {
+    const dps = Math.abs(daysPerSecond());
+    if (!dps) return 'pausiert';
+    const sec = 360 / Math.abs(b.rot[1]) / dps;
+    const t = sec < 0.01 ? '< 0,01 s' : sec < 1 ? `${nf(sec, 2)} s` : sec < 120 ? `${nf(sec, 1)} s` : sec < 7200 ? `${nf(sec / 60, 1)} min`
+      : sec < 172800 ? `${nf(sec / 3600, 1)} h` : `${nf(sec / 86400, 1)} Tage`;
+    return b.blur > 0.05 ? `${t} (zu schnell → verwischt)` : t;
   }
 
   function updateBodyBar() {
@@ -1116,6 +1311,31 @@
     zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * k));
   }, { passive: false });
 
+  // ------------------------------------------------------------------ Bewegungsunschärfe
+  // Bei hohem Zeitraffer dreht sich ein Körper zwischen zwei Bildern um mehr, als das Auge
+  // verfolgen kann (z. B. Jupiter bei „1 Woche/s“: ~100° pro Bild). Ohne Gegenmaßnahme
+  // entsteht der Stroboskop-Effekt (Rad dreht scheinbar langsam oder rückwärts).
+  // Deshalb wird die Oberfläche dann entlang der Breitenkreise verwischt – wie bei einer
+  // Langzeitbelichtung – und der Mond bei sehr schnellem Umlauf halbtransparent gezeichnet.
+  let smoothDt = 1 / 60;
+  const BLUR_START = 25, BLUR_FULL = 90; // Grad pro Bild
+
+  function daysPerSecond() {
+    return state.playing ? (state.speed * state.direction) / 86400 : 0;
+  }
+
+  function updateMotionBlur(dt) {
+    smoothDt += (clamp(dt, 1 / 240, 0.1) - smoothDt) * 0.1;
+    const dps = Math.abs(daysPerSecond());
+    for (const b of BODIES) {
+      b.degPerFrame = Math.abs(b.rot[1]) * dps * smoothDt;
+      b.blur = clamp((b.degPerFrame - BLUR_START) / (BLUR_FULL - BLUR_START));
+    }
+    const moon = byId.moon;
+    moon.orbitDegPerFrame = (360 / 27.321661) * dps * smoothDt;
+    moon.alpha = 1 - 0.7 * clamp((moon.orbitDegPerFrame - 30) / 60);
+  }
+
   // ------------------------------------------------------------------ Hauptschleife
   let last = performance.now();
   function frame(now) {
@@ -1131,17 +1351,61 @@
       state.simMs = clamp(state.simMs, -8.0e15, 8.0e15);
     }
     computePositions();
+    updateMotionBlur(dt);
     updateCamera(dt);
     render();
     updateHud(now);
     requestAnimationFrame(frame);
   }
 
-  // ------------------------------------------------------------------ Start
-  for (const b of BODIES) {
-    const t = makeTexture(TEXTURES[b.id], TEX_W, TEX_H);
-    b.texPx = new Uint32Array(t.getContext('2d').getImageData(0, 0, TEX_W, TEX_H).data.buffer);
+  // ------------------------------------------------------------------ echte Bilder laden
+  async function loadRealImages() {
+    let loaded = 0, blocked = false;
+    const jobs = BODIES.map(async (b) => {
+      const src = TEXTURE_FILES[b.id];
+      if (!src) return;
+      let img;
+      try {
+        img = await loadImage(src);
+      } catch {
+        return; // kein Bild vorhanden → erzeugte Textur bleibt
+      }
+      try {
+        b.tex = texFromCanvas(imageToCanvas(img));
+        b.realImage = true;
+        loaded++;
+      } catch {
+        blocked = true;
+      }
+    });
+    jobs.push(
+      loadImage(RING_FILE).then(
+        (img) => {
+          try {
+            ringImage = ringsFromStrip(imageToCanvas(img, 1024));
+          } catch {
+            blocked = true;
+          }
+        },
+        () => {}
+      )
+    );
+    await Promise.all(jobs);
+    const hint = $('texHint');
+    if (blocked) {
+      hint.textContent = 'Echte Bilder gefunden, aber der Browser sperrt sie beim Öffnen als Datei – bitte über einen lokalen Webserver starten (siehe README).';
+      hint.classList.remove('hidden');
+    } else if (loaded) {
+      hint.textContent = `${loaded} echte Oberflächenbilder geladen`;
+      hint.classList.remove('hidden');
+      setTimeout(() => hint.classList.add('hidden'), 4000);
+    }
   }
+
+  // ------------------------------------------------------------------ Start
+  for (const b of BODIES) b.tex = makeTexture(TEXTURES[b.id], 256, 128);
+  ringImage = proceduralRings();
+  loadRealImages();
   resize();
   window.addEventListener('resize', () => {
     const wasFit = !state.follow;
