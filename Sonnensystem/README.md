@@ -34,6 +34,14 @@ python3 -m http.server 8000     # dann http://localhost:8000 öffnen
 
 Tastatur: `Leertaste` Pause · `+`/`-` Zoom · `0` Gesamtansicht · `N` Jetzt · `Esc` Auswahl aufheben
 
+## Erde
+
+Die Erde zeigt die echten Kontinente, Seen und Eisschilde: Die Küstenlinien stammen aus
+[Natural Earth](https://www.naturalearthdata.com) (gemeinfrei) und liegen kompakt in
+`earth-data.js` (~43 KB). Die Einfärbung (Wald, Wüste, Regenwald, Tundra) ist eine Näherung nach
+Klimazonen. Neu erzeugen lässt sich die Datei mit `tools/make_earth_data.py`.
+Ein echtes Foto als `textures/earth.jpg` ersetzt diese Karte automatisch.
+
 ## Echte Bilder
 
 Equirektangulare Karten (Seitenverhältnis 2:1, links −180°, Mitte 0° = Nullmeridian, Norden oben)
@@ -45,3 +53,5 @@ Fehlt ein Bild, wird automatisch die erzeugte Ersatztextur verwendet.
 - `index.html` – Aufbau der Seite
 - `style.css` – Gestaltung
 - `solar.js` – Bahnberechnung, Rotation, Darstellung und Bedienung
+- `earth-data.js` – Küstenlinien, Seen und Gletscher der Erde (Natural Earth)
+- `tools/make_earth_data.py` – erzeugt `earth-data.js` aus den Natural-Earth-GeoJSON-Dateien

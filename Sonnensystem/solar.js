@@ -10,6 +10,7 @@
  *   in 3D gedreht, d. h. Achsneigung und Blickrichtung werden berücksichtigt.
  * Mond: vereinfachte Mondtheorie (Hauptterme), gebundene Rotation nach IAU.
  *
+ * Erde: echte Küstenlinien, Seen und Gletscher aus earth-data.js (Natural Earth).
  * Echte Bilder: equirektangulare Karten (2:1, Länge −180°…+180°, Norden oben) in den
  *   Ordner "textures/" legen – Dateinamen siehe TEXTURE_FILES. Fehlt ein Bild, wird eine
  *   erzeugte Textur verwendet.
@@ -112,6 +113,159 @@
       mean[y] = (Math.round(r / w) | (Math.round(g / w) << 8) | (Math.round(b / w) << 16)) >>> 0;
     }
     return { w, h, px, mean };
+  }
+
+  // ------------------------------------------------------------------ Erde aus echten Küstenlinien
+  // earth-data.js enthält Land, Seen und Gletscher (Natural Earth, gemeinfrei). Daraus wird eine
+  // Karte gezeichnet und eingefärbt – ganz ohne Bilddatei, funktioniert also auch per Doppelklick.
+  function decodeRings(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+    let i = 0;
+    const next = () => {
+      let n = 0, sh = 1, b;
+      do {
+        b = bytes[i++];
+        n += (b & 127) * sh;
+        sh *= 128;
+      } while (b & 128);
+      return n;
+    };
+    const zz = (n) => (n % 2 ? -(n + 1) / 2 : n / 2);
+    const rings = [];
+    while (i < bytes.length) {
+      const cnt = next();
+      const r = new Float32Array(cnt * 2);
+      let x = 0, y = 0;
+      for (let k = 0; k < cnt; k++) {
+        x += zz(next());
+        y += zz(next());
+        r[2 * k] = x / 10;
+        r[2 * k + 1] = y / 10;
+      }
+      rings.push(r);
+    }
+    return rings;
+  }
+
+  // Polygone (Länge/Breite) in eine Graustufenmaske zeichnen; blur > 0 macht einen weichen Rand
+  function rasterize(rings, w, h, blur = 0) {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const cx = c.getContext('2d');
+    cx.fillStyle = '#000';
+    cx.fillRect(0, 0, w, h);
+    cx.fillStyle = '#fff';
+    cx.beginPath();
+    for (const r of rings) {
+      for (let k = 0; k < r.length; k += 2) {
+        const x = ((r[k] + 180) / 360) * w, y = ((90 - r[k + 1]) / 180) * h;
+        if (k === 0) cx.moveTo(x, y);
+        else cx.lineTo(x, y);
+      }
+      cx.closePath();
+    }
+    cx.fill('evenodd');
+    if (blur) {
+      const b = document.createElement('canvas');
+      b.width = w;
+      b.height = h;
+      const bx = b.getContext('2d');
+      bx.filter = `blur(${blur}px)`;
+      bx.drawImage(c, 0, 0);
+      return bx.getImageData(0, 0, w, h).data;
+    }
+    return cx.getImageData(0, 0, w, h).data;
+  }
+
+  // Grobe Klimazonen für die Einfärbung: [Länge, Breite, Radius Länge, Radius Breite, Stärke]
+  const DESERTS = [
+    [8, 23, 30, 8, 1], [47, 23, 13, 9, 1], [60, 29, 11, 5, 0.8], [62, 43, 14, 5, 0.7],
+    [84, 39, 9, 3.5, 1], [104, 42, 15, 5, 0.85], [130, -25, 16, 9, 0.9], [-113, 33, 8, 6, 0.75],
+    [-70, -22, 3.5, 9, 0.9], [19, -24, 8, 6, 0.7], [-68, -45, 4, 7, 0.5], [45, 7, 7, 5, 0.6],
+    [88, 33, 12, 4, 0.45], [-104, 26, 5, 5, 0.5],
+  ];
+  const RAINFOREST = [
+    [-62, -4, 16, 9, 1], [20, 0, 11, 6, 1], [112, 0, 20, 7, 0.9], [100, 15, 8, 6, 0.5],
+    [-80, 5, 6, 8, 0.6], [145, -6, 6, 4, 0.7],
+  ];
+  // Grundfarbe nach geografischer Breite (Betrag): [Breite, r, g, b]
+  const ZONES = [
+    [0, 52, 100, 38], [12, 98, 118, 52], [28, 128, 132, 72], [40, 62, 102, 44],
+    [55, 42, 78, 44], [64, 70, 86, 58], [70, 128, 122, 100], [90, 150, 145, 130],
+  ];
+
+  function regionWeight(list, lonD, latD) {
+    let w = 0;
+    for (const [cl, cb, rl, rb, k] of list) {
+      const dl = angDiff(lonD * DEG, cl * DEG) / DEG / rl, db = (latD - cb) / rb;
+      const d = dl * dl + db * db;
+      if (d < 1) w = Math.max(w, k * (1 - d) * (1 - d) * 1.6);
+    }
+    return Math.min(1, w);
+  }
+
+  function zoneColor(alat) {
+    for (let k = 1; k < ZONES.length; k++) {
+      if (alat <= ZONES[k][0]) {
+        const a = ZONES[k - 1], b = ZONES[k];
+        return mix(a.slice(1), b.slice(1), (alat - a[0]) / (b[0] - a[0]));
+      }
+    }
+    return ZONES[ZONES.length - 1].slice(1);
+  }
+
+  function makeEarthTexture(data, w = 1024, h = 512) {
+    const land = rasterize(decodeRings(data.land), w, h);
+    const shelf = rasterize(decodeRings(data.land), w, h, w / 160);
+    const lakes = rasterize(decodeRings(data.lakes), w, h);
+    const ice = rasterize(decodeRings(data.ice), w, h);
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const cx = c.getContext('2d');
+    const img = cx.createImageData(w, h);
+    const d = img.data;
+    for (let y = 0; y < h; y++) {
+      const latD = 90 - ((y + 0.5) / h) * 180;
+      const lat = latD * DEG, alat = Math.abs(latD);
+      const cl = Math.cos(lat), sl = Math.sin(lat);
+      const zone = zoneColor(alat);
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const lonD = ((x + 0.5) / w) * 360 - 180;
+        const lon = lonD * DEG;
+        const px = cl * Math.cos(lon), py = cl * Math.sin(lon), pz = sl;
+        // Meer: tief → flach in Küstennähe
+        let col = mix([6, 26, 74], [28, 92, 150], Math.pow(shelf[i] / 255, 0.8) * 0.9);
+        let t = land[i] / 255;
+        if (lakes[i] > 127) t = Math.min(t, 1 - lakes[i] / 255);
+        if (t > 0) {
+          const n = fbm(px * 6, py * 6, pz * 6, 11, 3);
+          const m = fbm(px * 14, py * 14, pz * 14, 12, 3); // unregelmäßige Ränder der Wüsten
+          let lc = zone;
+          const dry = regionWeight(DESERTS, lonD + (m - 0.5) * 9, latD + (n - 0.5) * 6);
+          lc = mix(lc, [212, 182, 128], dry * (0.75 + m * 0.5) + (n - 0.5) * 0.35);
+          lc = mix(lc, [22, 70, 28], regionWeight(RAINFOREST, lonD, latD));
+          const k = 0.85 + n * 0.3;
+          col = mix(col, [lc[0] * k, lc[1] * k, lc[2] * k], t);
+        }
+        // Gletscher und Eisschilde (Grönland, Antarktis), Meereis in der hohen Arktis
+        if (ice[i] > 0) col = mix(col, [238, 243, 248], ice[i] / 255);
+        if (latD > 80 && t < 0.5) col = mix(col, [225, 233, 240], (latD - 80) / 6);
+        // dezente Wolken, damit die Kontinente gut erkennbar bleiben
+        const cloud = fbm(px * 3 + 7, py * 3, pz * 5, 13, 4);
+        if (cloud > 0.6) col = mix(col, [255, 255, 255], (cloud - 0.6) * 1.6);
+        d[i] = col[0];
+        d[i + 1] = col[1];
+        d[i + 2] = col[2];
+        d[i + 3] = 255;
+      }
+    }
+    cx.putImageData(img, 0, 0);
+    return texFromCanvas(c);
   }
 
   // ------------------------------------------------------------------ echte Bilder (optional)
@@ -1404,6 +1558,7 @@
 
   // ------------------------------------------------------------------ Start
   for (const b of BODIES) b.tex = makeTexture(TEXTURES[b.id], 256, 128);
+  if (window.EARTH_DATA) byId.earth.tex = makeEarthTexture(window.EARTH_DATA);
   ringImage = proceduralRings();
   loadRealImages();
   resize();
