@@ -1071,18 +1071,20 @@
     if (x < 0) r = 3.14159274 - r;
     return y < 0 ? -r : r;
   }
-  const sphereBuf = { w: 0, h: 0, canvas: null, ctx: null, img: null, px: null };
-
-  function sphereBuffer(w, h) {
-    if (w > sphereBuf.w || h > sphereBuf.h) {
-      const c = document.createElement('canvas');
-      c.width = Math.max(w, sphereBuf.w);
-      c.height = Math.max(h, sphereBuf.h);
-      const cx = c.getContext('2d');
-      const img = cx.createImageData(c.width, c.height);
-      Object.assign(sphereBuf, { w: c.width, h: c.height, canvas: c, ctx: cx, img, px: new Uint32Array(img.data.buffer) });
-    }
-    return sphereBuf;
+  // Jeder Körper hat einen eigenen Zwischenpuffer. Ein gemeinsamer Puffer führt zu Flackern:
+  // Browser (v. a. Safari, Chrome mit GPU) führen drawImage teils verzögert aus – wird derselbe
+  // Puffer im selben Bild für den nächsten Körper überschrieben, erscheint dessen Bild (z. B. ein
+  // Mond) auf dem vorherigen Planeten. Der Puffer wächst nur, kleinere Bilder nutzen einen Ausschnitt.
+  function sphereBuffer(b, w, h) {
+    const S = b.sphereBuf;
+    if (S && w <= S.w && h <= S.h) return S;
+    const c = document.createElement('canvas');
+    c.width = Math.max(w, S ? S.w : 0);
+    c.height = Math.max(h, S ? S.h : 0);
+    const cx = c.getContext('2d');
+    const img = cx.createImageData(c.width, c.height);
+    b.sphereBuf = { w: c.width, h: c.height, canvas: c, ctx: cx, img, px: new Uint32Array(img.data.buffer) };
+    return b.sphereBuf;
   }
 
   function bilerp(c00, c10, c01, c11, tx, ty) {
@@ -1104,7 +1106,9 @@
     const res = Math.min(DPR, Math.sqrt(budget / (visW * visH)));
     const t0 = performance.now();
     const bw = Math.max(1, Math.round(visW * res)), bh = Math.max(1, Math.round(visH * res));
-    const S = sphereBuffer(bw, bh), out = S.px, stride = S.w;
+    // großer Puffer aus der Beobachtung wird freigegeben, sobald der Körper nicht mehr im Fokus ist
+    if (!focus && b.sphereBuf && b.sphereBuf.w * b.sphereBuf.h > 4 * PIXEL_BUDGET) b.sphereBuf = null;
+    const S = sphereBuffer(b, bw, bh), out = S.px, stride = S.w;
     const T = b.texHi || b.tex;
     const { w: TW, h: TH, px: tex, mean } = T;
     const { X, Y, P } = b.viewAxes;
@@ -1404,7 +1408,7 @@
   // Mond ausblenden, solange er in der Darstellung im Planeten (bzw. Saturnring) verschwinden würde
   function moonHidden(m) {
     const p = m.parentBody;
-    return m.geoDisp * cam.scale < p.rpx * (p.rings ? 2.35 : 1) + 5;
+    return m.alpha < 0.02 || m.geoDisp * cam.scale < p.rpx * (p.rings ? 2.35 : 1) + 5;
   }
 
   function drawBodies() {
@@ -1977,7 +1981,10 @@
     for (const m of MOONS) {
       const period = m.sat ? 360 / m.sat.L[1] : 27.321661; // Tage
       m.orbitDegPerFrame = (360 / period) * dps * smoothDt;
-      m.alpha = 1 - 0.7 * clamp((m.orbitDegPerFrame - 30) / 60);
+      // Ab ~20° pro Bild springt der Mond sichtbar, ab 60° wirkt seine Position zufällig und er
+      // würde einzelne Bilder lang vor/auf dem Planeten aufblitzen → dann ganz ausblenden und nur
+      // die (heller gezeichnete) Bahn zeigen. Ein verfolgter Mond bleibt sichtbar (Kamera hält ihn fest).
+      m.alpha = state.follow === m ? 1 : 1 - clamp((m.orbitDegPerFrame - 20) / 40);
     }
   }
 
