@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sonnensystem live</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="sky" aria-label="Interaktive Darstellung des Sonnensystems"></canvas>
+
+  <header class="hud">
+    <h1>Sonnensystem</h1>
+    <div id="date" class="date"></div>
+    <div class="sub"><span id="liveBadge" class="badge">LIVE</span> <span id="speedLabel"></span></div>
+    <div id="accuracy" class="warn hidden">Außerhalb 1800–2050: Positionen nur näherungsweise</div>
+  </header>
+
+  <nav id="bodyBar" class="bodybar" aria-label="Himmelskörper auswählen"></nav>
+
+  <aside id="info" class="panel info hidden" aria-live="polite">
+    <button id="infoClose" class="close" title="Schließen">×</button>
+    <h2 id="infoName"></h2>
+    <p id="infoType" class="sub"></p>
+    <dl id="infoList"></dl>
+    <button id="followBtn" class="btn wide">Folgen &amp; heranzoomen</button>
+  </aside>
+
+  <div class="zoom">
+    <button id="zoomIn" class="btn round" title="Hineinzoomen (+)">+</button>
+    <button id="zoomOut" class="btn round" title="Herauszoomen (−)">−</button>
+    <button id="zoomFit" class="btn round" title="Ganzes Sonnensystem (0)">⤢</button>
+  </div>
+
+  <div id="scaleBar" class="scalebar"><div class="bar"></div><span></span></div>
+
+  <footer class="controls panel">
+    <div class="group">
+      <button id="reverse" class="btn" title="Zeit rückwärts laufen lassen">⏪</button>
+      <button id="play" class="btn" title="Start / Pause (Leertaste)">⏸</button>
+      <div id="speeds" class="speeds"></div>
+      <button id="now" class="btn accent" title="Zurück zum aktuellen Zeitpunkt in Echtzeit (N)">● Jetzt</button>
+      <input id="dateInput" type="datetime-local" title="Zu einem Datum springen">
+    </div>
+    <div class="group">
+      <label class="toggle"><input id="optRealDist" type="checkbox"> echte Abstände</label>
+      <label class="toggle"><input id="optRealSize" type="checkbox"> echte Größen</label>
+      <label class="toggle"><input id="optOrbits" type="checkbox" checked> Bahnen</label>
+      <label class="toggle"><input id="optLabels" type="checkbox" checked> Namen</label>
+      <label class="toggle"><input id="optBelts" type="checkbox" checked> Asteroiden</label>
+      <label class="tilt">Neigung <input id="optTilt" type="range" min="0" max="88" value="35"></label>
+    </div>
+  </footer>
+
+  <script src="solar.js"></script>
+</body>
+</html>
