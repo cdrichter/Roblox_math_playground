@@ -20,7 +20,7 @@ local function createBoard()
 
 	board.Position = Vector3.new(
 		25,
-		50,
+		120,
 		0
 	)
 

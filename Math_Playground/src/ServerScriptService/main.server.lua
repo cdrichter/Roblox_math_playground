@@ -40,6 +40,8 @@ local MathGameService =
 local FinishService =
 	require(Services:WaitForChild("FinishService"))
 
+local LeaderboardService =
+	require(Services:WaitForChild("LeaderboardService"))
 --------------------------------------------------
 -- INIT
 --------------------------------------------------
@@ -50,5 +52,6 @@ AnswerPlateService:Init()
 
 MathGameService:Init()
 FinishService:Init()
+LeaderboardService:Init()
 
 print("Math Playground server initialized.")

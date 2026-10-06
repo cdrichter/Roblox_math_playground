@@ -272,6 +272,10 @@ local function createTrack(difficulty)
 		rightTile:SetAttribute("QuestionIndex", question)
 		rightTile:SetAttribute("AnswerIndex", 2)
 
+
+
+		createAnswerDisplay(leftTile)
+		createAnswerDisplay(rightTile)
 		--------------------------------------------------
 		-- QUESTION SIGN
 		--------------------------------------------------
@@ -332,6 +336,51 @@ local function createTrack(difficulty)
 		"IsFinishPad",
 		true
 	)
+end
+
+local function createAnswerDisplay(plate)
+	local surfaceGui =
+		Instance.new("SurfaceGui")
+
+	surfaceGui.Name = "AnswerGui"
+
+	surfaceGui.Face =
+		Enum.NormalId.Top
+
+	surfaceGui.SizingMode =
+		Enum.SurfaceGuiSizingMode.PixelsPerStud
+
+	surfaceGui.PixelsPerStud = 50
+
+	surfaceGui.Parent = plate
+
+	local label =
+		Instance.new("TextLabel")
+
+	label.Name = "AnswerText"
+
+	label.Size =
+		UDim2.fromScale(1, 1)
+
+	label.BackgroundTransparency = 1
+
+	label.Text = "?"
+
+	label.TextColor3 =
+		Color3.fromRGB(
+			255,
+			255,
+			255
+		)
+
+	label.TextStrokeTransparency = 0.4
+
+	label.Font =
+		Enum.Font.GothamBold
+
+	label.TextScaled = true
+
+	label.Parent = surfaceGui
 end
 
 --------------------------------------------------
