@@ -227,3 +227,5 @@ input[type="datetime-local"] {
   .controls .btn, .speeds .btn { padding: 4px 7px; font-size: 12px; }
   .tilt input { width: 80px; }
 }
+
+.hud .warn { max-width: 380px; }
